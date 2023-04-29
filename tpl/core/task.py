@@ -1,5 +1,8 @@
-class Task:
+class Node:
+    name: str
+
+class Task(Node):
     ...
 
-class Group:
+class Group(Node):
     ...

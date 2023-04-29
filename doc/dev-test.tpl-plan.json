@@ -1,0 +1,43 @@
+{
+    "tasks": [
+        {
+            "name": "Flushing",
+            "tasks": [
+                {"name": "Static flushing"},
+                {"name": "Dynamic flushing"}
+            ]
+        },
+        {
+            "name": "Run-in",
+            "tasks": [
+                {"name": "Run-in 5%"},
+                {"name": "Run-in 10%"}
+            ]
+        },
+        {
+            "name": "Contact patterns",
+            "tasks": [
+                {"name": "CP 33%"},
+                {"name": "CP 66%"},
+                {"name": "CP 100%"},
+                {"name": "CP 133%"}
+            ]
+        }
+    ],
+    "definitions": {
+        "inputs": {
+            "uuid-input-1": {"name": "T_man", "value": "50±3°C"},
+            "uuid-input-2": {"name": "P_man", "value": ">1.1bar"},
+            "uuid-input-3": {"name": "HSS_Speed", "reflector": null},
+            "uuid-input-4": {"name": "Q_MP", "eval": "{HSS_Speed}/u_3*q"}
+        },
+        "criteria": {
+            "uuid-criteria-1": {"name": "T_HSS_bearing", "value": "±3K within 15min"},
+            "uuid-criteria-2": {"name": "Oil cleanliness", "value": "-/14/11"}
+        },
+        "measurements": {
+            "uuid-meas-1": {"name": "S&V", "value": "NI measurement with 51.2kHz"},
+            "uuid-meas-2": {"name": "LDM", "value": "IMC RGs (2kHz) / Astute SUs (2kHz)"}
+        }
+    }
+}
