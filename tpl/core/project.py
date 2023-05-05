@@ -5,5 +5,11 @@ class PlannerProject:
         self.tasks: list[Node] = []
         self.definitions: dict = {}
 
+    @classmethod
+    def parse_config(self, config: dict) -> "PlannerProject":
+        project = PlannerProject()
+        project.tasks = Node.parse_config(config.get("tasks", []))
+        return project
+
 class LoggerProject:
     ...

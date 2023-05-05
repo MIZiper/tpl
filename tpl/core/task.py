@@ -1,6 +1,7 @@
 class Node:
     def __init__(self, name: str) -> None:
         self.name = name
+        self.comment = ""
         self.is_hidden: bool = False # The internal steps (won't export to customer graph)
 
     @classmethod
@@ -12,6 +13,11 @@ class Node:
             else:
                 rst.append(Task.parse_config(task_config))
         return rst
+    
+    def get_config(self) -> dict:
+        return {
+            "name": self.name,
+        }
     
     def _repr_(self, i=0):
         return " "*i + repr(self)
