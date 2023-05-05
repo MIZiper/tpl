@@ -21,7 +21,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _create_ui(self):
         self.planner_tree = planner_tree = PlannerTreeWidget(self)
-        self.config_stack = config_stack = QtWidgets.QStackedWidget(self)
+        self.config_stack = config_stack = PlannerStackWidget(self)
 
         config_stack.setMinimumWidth(480)
 
@@ -110,6 +110,47 @@ class GroupItemWidget(QTreeWidgetItem):
 
 class DefinitionItemWidget(QTreeWidgetItem):
     ...
+
+class PlannerStackWidget(QtWidgets.QStackedWidget):
+    def __init__(self, parent_win):
+        super().__init__(parent_win)
+
+        self.task_panel = task_panel = TaskPanel(self)
+        self.addWidget(task_panel)
+
+    def edit_task(self, task: Task):
+        ...
+
+class TaskPanel(QWidget):
+    def __init__(self, parent):
+        super().__init__(parent)
+
+        self.task = None
+        self._create_ui()
+
+    def _create_ui(self):
+        vlayout = QtWidgets.QVBoxLayout(self)
+        vlayout.setContentsMargins(0, 0, 0, 0)
+
+        task_editor = TaskBasicEditor(self)
+        vlayout.addWidget(task_editor)
+
+    def set_task(self, task):
+        ...
+
+    def sync(self):
+        ...
+
+class TaskBasicEditor(QtWidgets.QGroupBox):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setTitle("Edit task")
+        form_layout = QtWidgets.QFormLayout(self)
+
+        self.task_name_edit = tne = QtWidgets.QLineEdit(self)
+        form_layout.addRow("Name", tne)
+        self.task_comment_area = tca = QtWidgets.QTextEdit(self)
+        form_layout.addRow("Comment", tca)
 
 if __name__=="__main__":
     import sys
