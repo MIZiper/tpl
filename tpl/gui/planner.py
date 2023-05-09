@@ -5,6 +5,7 @@ from PyQt5.QtWidgets import QTreeWidget, QTreeWidgetItem, QPushButton, QWidget
 import logging, json
 
 from tpl.core.task import Task, Group
+from tpl.core.definition import DefinitionItem, DefinitionGroup
 from tpl.core.project import PlannerProject
 
 APP_TITLE = "Test Planner & Logger"
@@ -42,7 +43,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if not fpath:
                 return
             if fext:
-                with open(fpath, "r") as fp:
+                with open(fpath, "r", encoding="utf8") as fp:
                     config = json.load(fp)
                     self.apply_config(config)
 
@@ -70,6 +71,8 @@ class PlannerTreeWidget(QTreeWidget):
         self.setHeaderLabels(["Name", "Remark"])
         self.setColumnWidth(NAME, 320)
 
+        self.customContextMenuRequested.connect(self.action_context_menu)
+
     def refresh(self):
         self.clear()
         planner = self.planner
@@ -84,6 +87,18 @@ class PlannerTreeWidget(QTreeWidget):
             elif isinstance(node, Group):
                 GroupItemWidget(task_root, node)
         task_root.setExpanded(True)
+
+        definition_root = QTreeWidgetItem(self)
+        definition_root.setText(NAME, "Definitions")
+        for group in planner.definitions:
+            group_item = DefinitionGroupItemWidget(definition_root, group)
+            for definition in group.items:
+                DefinitionItemWidget(group_item, definition)
+            group_item.setExpanded(True)
+        definition_root.setExpanded(True)
+
+    def action_context_menu(self, pos: QtCore.QPoint):
+        ...
 
     def apply_config(self, config: dict):
         self.planner = PlannerProject.parse_config(config)
@@ -109,7 +124,17 @@ class GroupItemWidget(QTreeWidgetItem):
         self.setExpanded(True)
 
 class DefinitionItemWidget(QTreeWidgetItem):
-    ...
+    def __init__(self, parent_item, definition: DefinitionItem):
+        super().__init__(parent_item)
+        self.definition = definition
+        self.setText(NAME, definition.name)
+        self.setText(REMARK, definition.value)
+
+class DefinitionGroupItemWidget(QTreeWidgetItem):
+    def __init__(self, parent_item, group: DefinitionGroup):
+        super().__init__(parent_item)
+        self.group = group
+        self.setText(NAME, group.name)
 
 class PlannerStackWidget(QtWidgets.QStackedWidget):
     def __init__(self, parent_win):
@@ -119,6 +144,9 @@ class PlannerStackWidget(QtWidgets.QStackedWidget):
         self.addWidget(task_panel)
 
     def edit_task(self, task: Task):
+        ...
+
+    def edit_definition(self, definition: DefinitionItem):
         ...
 
 class TaskPanel(QWidget):
