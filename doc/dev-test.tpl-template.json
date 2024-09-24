@@ -1,0 +1,27 @@
+{
+    "test_step": [
+        {
+            "name": "Static torque & speed",
+            "inputs": [
+                "torque-input",
+                "speed-input",
+                
+                "HSS_Speed",
+                "HSS_Speed%",
+                "LSS_Torque",
+                "LSS_Torque%"
+            ],
+            "measurements": [
+                "monitor-1",
+                "monitor-2"
+            ],
+            "criteria": [
+                "oilcleanliness",
+                "stable temp"
+            ]
+        },
+        {
+            "name": "Speed ramp up"
+        }
+    ]
+}
