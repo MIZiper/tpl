@@ -9,6 +9,10 @@ class StepGroup {
         // note: subnode "Aborted" is also considered as "Completed"
         return
     }
+    
+    add_step_like(step: StepItem) {
+        
+    }
 }
 
 class StepItem {

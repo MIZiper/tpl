@@ -15,18 +15,53 @@ class DefinitionItem {
     }
 }
 
-class Input {
+class BaseDefinition {
+    static subclasses: typeof BaseDefinition[] = [];
+    static CAPTION = "Generic"
+
+    constructor() {
+        if (!BaseDefinition.subclasses.includes(this.constructor as typeof BaseDefinition)) {
+            BaseDefinition.subclasses.push(this.constructor as typeof BaseDefinition);
+        }
+    }
+}
+
+class StaticDefinition extends BaseDefinition { // Gearbox, reflector, ...
+
+}
+
+class InteractiveDefinition extends BaseDefinition { // Input, Measurement, Criterion
+
+}
+
+class InputDefinition extends BaseDefinition {
+    static CAPTION = "Inputs"
     
 }
 
-class Measurement extends DefinitionItem {
+class BasicInput {}
+class AbsoluteInput {}
+class RelativeInput {}
+
+class MeasurementDefinition extends BaseDefinition {
+    static CAPTION = "Measurements"
 
 }
 
-class Criterion extends DefinitionItem {
+class BasicMeasurement {}
+class GeneralMeasurement {}
 
+class CriterionDefinition extends BaseDefinition {
+    static CAPTION: string = "Criteria"
 }
 
-class Reflector {
+class BasicCriterion {}
+
+class ReflectorDefinition extends BaseDefinition {
     
+}
+
+// In drivetrain plugin
+class GearboxDefinition extends BaseDefinition {
+
 }
