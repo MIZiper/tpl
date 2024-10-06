@@ -15,5 +15,11 @@ class PlannerProject:
 
         return project
 
+    def get_save_config(self):
+        return {
+            "tasks": [node.get_config() for node in self.tasks],
+            "definitions": {}
+        }
+
 class LoggerProject:
     ...

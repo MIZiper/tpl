@@ -23,6 +23,7 @@ class Node:
         return " "*i + repr(self)
 
 class Task(Node):
+    # progress / repeat times => for warming up, unlimited times; for regular, 1 cycle; for robustness test, maybe specified times.
     @classmethod
     def parse_config(self, config: dict) -> "Task":
         return Task(name=config.get("name", "Unamed_Task"))
