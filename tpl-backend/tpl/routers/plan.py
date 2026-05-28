@@ -22,11 +22,6 @@ async def get_plan(project_id: str, db: Connection = Depends(get_connection)):
     return await plan_service.get_plan(db, project_id)
 
 
-@router.post("/projects/{project_id}/plan/initialize", response_model=PlanTree)
-async def initialize_plan(project_id: str, db: Connection = Depends(get_connection)):
-    return await plan_service.initialize_plan(db, project_id)
-
-
 @router.post("/projects/{project_id}/plan/groups", response_model=PlanGroup, status_code=201)
 async def create_group(project_id: str, body: PlanGroupCreate, db: Connection = Depends(get_connection)):
     return await plan_service.create_group(db, project_id, body)

@@ -12,6 +12,7 @@ import type {
   ExecutionStats,
   SyncPayload,
 } from "../../types";
+import type { PlanDocument } from "../../types/plan";
 
 export const risksApi = {
   list: (search?: string) =>
@@ -76,6 +77,11 @@ export const projectsApi = {
 export const planApi = {
   get: (projectId: string) => api.get<PlanTree>(`/api/projects/${projectId}/plan`),
   initialize: (projectId: string) => api.post<PlanTree>(`/api/projects/${projectId}/plan/initialize`),
+
+  getDocument: (projectId: string) => api.get<PlanDocument>(`/api/projects/${projectId}/plan-document`),
+  saveDocument: (projectId: string, document: PlanDocument) =>
+    api.put<void>(`/api/projects/${projectId}/plan-document`, { document }),
+
   groups: {
     create: (projectId: string, data: Partial<PlanGroup>) =>
       api.post<PlanGroup>(`/api/projects/${projectId}/plan/groups`, data),

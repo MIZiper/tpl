@@ -10,6 +10,11 @@ from tpl.models import (
     PlanStep,
     PlanStepCreate,
     PlanStepUpdate,
+    PlanDocument,
+    PlanDefinitions,
+    PlanFieldDef,
+    PlanNode,
+    FieldBinding,
 )
 
 
@@ -57,34 +62,113 @@ def _build_group_tree(
     return result
 
 
-async def initialize_plan(db: Connection, project_id: str) -> PlanTree:
+async def get_plan_document(db: Connection, project_id: str) -> PlanDocument:
+    row = await db.fetchrow("SELECT plan_document FROM projects WHERE id = $1", project_id)
+    if row and row["plan_document"] is not None:
+        return PlanDocument.model_validate(row["plan_document"])
+    return PlanDocument()
+
+
+async def save_plan_document(db: Connection, project_id: str, doc: PlanDocument) -> None:
+    await db.execute(
+        "UPDATE projects SET plan_document = $1, updated_at = NOW() WHERE id = $2",
+        json.dumps(doc.model_dump()),
+        project_id,
+    )
+
+
+async def initialize_plan(db: Connection, project_id: str) -> PlanDocument:
+    existing = await db.fetchval("SELECT plan_document FROM projects WHERE id = $1", project_id)
+    if existing is not None:
+        return PlanDocument.model_validate(existing)
+
     solution_rows = await db.fetch(
-        """SELECT s.id FROM solutions s
+        """SELECT s.id, s.title FROM solutions s
            JOIN project_solutions ps ON s.id = ps.solution_id
            WHERE ps.project_id = $1""",
         project_id,
     )
 
+    defs = PlanDefinitions()
+    root: list[PlanNode] = []
+
     for sol_row in solution_rows:
         sol_id = sol_row["id"]
+        sol_name = sol_row["title"]
+
         step_rows = await db.fetch(
             "SELECT * FROM solution_steps WHERE solution_id = $1 ORDER BY order_index",
             sol_id,
         )
+
+        step_nodes: list[PlanNode] = []
         for s_row in step_rows:
             s = dict(s_row)
-            await db.execute(
-                """INSERT INTO plan_steps
-                   (project_id, solution_id, solution_step_id, order_index, title, description,
-                    input_params, duration_estimate_minutes, data_to_collect, completion_criteria)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-                   ON CONFLICT DO NOTHING""",
-                project_id, sol_id, s["id"], s["order_index"], s["title"], s["description"],
-                s["input_params_template"], s["duration_estimate_minutes"],
-                s["data_to_collect"], s["completion_criteria"],
-            )
 
-    return await get_plan(db, project_id)
+            input_conditions: list[FieldBinding] = []
+            for p in (s["input_params_template"] or []):
+                fid = _ensure_def(defs, "input_conditions", p)
+                input_conditions.append(FieldBinding(definition_id=fid, value=p.get("default_value")))
+
+            collection_items: list[FieldBinding] = []
+            for d in (s["data_to_collect"] or []):
+                fid = _ensure_def(defs, "collection_items", d)
+                collection_items.append(FieldBinding(definition_id=fid))
+
+            criteria: list[FieldBinding] = []
+            if s["completion_criteria"]:
+                fid = _ensure_def(defs, "completion_criteria", {"name": s["completion_criteria"], "field_type": "text"})
+                criteria.append(FieldBinding(definition_id=fid))
+
+            node = PlanNode(
+                id=_new_id(),
+                type="step",
+                title=s["title"],
+                description=s.get("description"),
+                duration_minutes=s.get("duration_estimate_minutes", 60),
+                input_conditions=input_conditions,
+                collection_items=collection_items,
+                completion_criteria=criteria,
+                required_executions=1,
+                solution_step_id=s["id"],
+            )
+            step_nodes.append(node)
+
+        if step_nodes:
+            group_node = PlanNode(
+                id=_new_id(),
+                type="group",
+                title=sol_name,
+                children=step_nodes,
+            )
+            root.append(group_node)
+
+    from uuid import uuid4 as _uuid4
+    return PlanDocument(definitions=defs, root=root)
+
+
+def _ensure_def(defs: PlanDefinitions, category: str, item: dict) -> str:
+    attr = getattr(defs, category)
+    name = item.get("name", "")
+    for existing in attr:
+        if existing.name == name:
+            return existing.id
+    from uuid import uuid4
+    fid = str(uuid4())
+    field_def = PlanFieldDef(
+        id=fid,
+        name=name or "Unnamed",
+        field_type=item.get("field_type", item.get("type", "text")),
+        unit=item.get("unit", item.get("unit", None)),
+        default_value=item.get("default_value"),
+    )
+    setattr(defs, category, [*attr, field_def])
+    return fid
+
+
+def _new_id() -> str:
+    from uuid import uuid4
+    return str(uuid4())
 
 
 async def create_group(db: Connection, project_id: str, data: PlanGroupCreate) -> PlanGroup:

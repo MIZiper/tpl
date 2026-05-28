@@ -1,223 +1,258 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { p, route } from "../../router";
-  import { planStore } from "../../stores/plan";
+  import {
+    planState,
+    selectedNode,
+    loadDoc,
+    saveDoc,
+    initDoc,
+    selectNode,
+    addStep,
+    addGroup,
+    dupNode,
+    delNode,
+    updateSelected,
+    moveUp,
+    moveDown,
+    addDef,
+    removeDef,
+    addTemplate,
+    applyTemplate,
+    delTemplate,
+    exportJSON,
+    importJSON,
+    syncFieldBindings,
+  } from "../../stores/plan";
   import { planApi } from "../../lib/api";
-  import type { PlanTree, PlanGroupWithChildren, PlanStep } from "../../types";
+  import type { PlanNode, PlanFieldDef, PlanDefinitions } from "../../types/plan";
+  import PlanCanvas from "./PlanCanvas.svelte";
+  import PlanStepEditor from "./PlanStepEditor.svelte";
 
   let id: string = $derived(route.params.id ?? "");
-  let tree = $state<PlanTree | null>(null);
-  let loading = $state(false);
-  let error = $state("");
-  let selectedStep = $state<PlanStep | null>(null);
-  let showAddGroup = $state(false);
-  let showAddStep = $state(false);
-  let newGroupTitle = $state("");
-  let newStepTitle = $state("");
-  let parentGroupId = $state<string | null>(null);
 
-  async function loadPlan() {
-    loading = true;
-    try {
-      tree = await planApi.get(id);
-    } catch {
-      error = "Failed to load plan.";
-    } finally {
-      loading = false;
+  let leftTab = $state<"tree" | "definitions" | "templates">("tree");
+  let contextMenu = $state<{ x: number; y: number; nodeId: string | null; parentId: string | null; index: number } | null>(null);
+  let showInitModal = $state(false);
+  let showDefForm = $state(false);
+  let defCategory: keyof PlanDefinitions = $state<keyof PlanDefinitions>("input_conditions");
+  let newDef = $state({ name: "", field_type: "text", unit: null as string | null, default_value: null as any });
+  let newTemplateName = $state("");
+
+  onMount(() => { loadDoc(id, planApi.getDocument); });
+
+  function ctxMenu(e: MouseEvent, nodeId: string | null, parentId: string | null, index: number) { e.preventDefault(); contextMenu = { x: e.clientX, y: e.clientY, nodeId, parentId, index }; }
+  function closeCtx() { contextMenu = null; }
+
+  function handleCanvasAction(action: string, payload: { nodeId: string }) {
+    switch (action) {
+      case "add-step": addStep(payload.nodeId || null); break;
+      case "add-group": addGroup(payload.nodeId || null); break;
+      case "delete": delNode(payload.nodeId); break;
+      case "duplicate": dupNode(payload.nodeId); break;
+      case "move-up": moveUp(payload.nodeId); break;
+      case "move-down": moveDown(payload.nodeId); break;
+      case "save-as-template": {
+        const doc = $planState.document; if (doc) { const n = find(doc.root, payload.nodeId); addTemplate(n?.title || "Template", payload.nodeId); }
+      } break;
     }
+    if ($planState.dirty) saveDoc(id, planApi.saveDocument);
   }
 
-  async function handleInitialize() {
-    loading = true;
-    try {
-      tree = await planApi.initialize(id);
-    } catch {
-      error = "Failed to initialize plan.";
-    } finally {
-      loading = false;
-    }
+  function find(root: PlanNode[], nodeId: string): PlanNode | null {
+    for (const n of root) { if (n.id === nodeId) return n; if (n.type === "group") { const f = find(n.children, nodeId); if (f) return f; } }
+    return null;
   }
 
-  async function addGroup() {
-    if (!newGroupTitle) return;
-    await planApi.groups.create(id, { title: newGroupTitle, parent_group_id: parentGroupId, order_index: 0 });
-    newGroupTitle = "";
-    parentGroupId = null;
-    showAddGroup = false;
-    await loadPlan();
+  async function handleImport(e: Event) {
+    const input = e.target as HTMLInputElement; const file = input.files?.[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => { if (importJSON(reader.result as string)) saveDoc(id, planApi.saveDocument); };
+    reader.readAsText(file); input.value = "";
   }
 
-  async function addStep() {
-    if (!newStepTitle) return;
-    await planApi.steps.create(id, { title: newStepTitle, group_id: parentGroupId, order_index: 0 });
-    newStepTitle = "";
-    parentGroupId = null;
-    showAddStep = false;
-    await loadPlan();
+  function addNewDef() {
+    if (!newDef.name) return;
+    addDef(defCategory, { name: newDef.name, field_type: newDef.field_type, unit: newDef.unit, default_value: newDef.default_value });
+    newDef = { name: "", field_type: "text", unit: null, default_value: null }; showDefForm = false;
   }
 
-  async function deleteStep(stepId: string) {
-    await planApi.steps.delete(id, stepId);
-    await loadPlan();
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key !== "Delete" || !$planState.selectedNodeId) return;
+    const tag = (e.target as HTMLElement)?.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+    delNode($planState.selectedNodeId); saveDoc(id, planApi.saveDocument);
   }
 
-  async function deleteGroup(groupId: string) {
-    await planApi.groups.delete(id, groupId);
-    await loadPlan();
-  }
-
-  function selectStep(step: PlanStep) {
-    selectedStep = step;
-    planStore.selectStep(step);
-  }
-
-  function hasContent(): boolean {
-    if (!tree) return false;
-    return tree.groups.length > 0 || tree.ungrouped_steps.length > 0;
-  }
-
-  onMount(() => {
-    loadPlan();
-  });
+  function catLab(c: keyof PlanDefinitions) { return { input_conditions: "Input Conditions", collection_items: "Collection Items", completion_criteria: "Completion Criteria", custom: "Custom" }[c]; }
+  function tLab(t: string) { return { text: "Text", number: "Number", boolean: "Boolean", pass_fail: "Pass/Fail", threshold: "Threshold", measurement: "Measurement" }[t] || t; }
+  function hasC(d: PlanDocument | null) { return !!(d && (d.root.length > 0 || d.definitions.input_conditions.length > 0 || d.templates.length > 0)); }
 </script>
 
-<div>
-  <div class="d-flex justify-content-between align-items-center mb-3">
-    <h2>Test Plan</h2>
-    <div>
-      {#if !hasContent()}
-        <button class="btn btn-success me-2" onclick={handleInitialize} disabled={loading}>
-          Initialize from Solutions
-        </button>
-      {/if}
-      <button class="btn btn-outline-primary me-1" onclick={() => { showAddGroup = true; showAddStep = false; }}>
-        + Group
-      </button>
-      <button class="btn btn-outline-primary" onclick={() => { showAddStep = true; showAddGroup = false; }}>
-        + Step
-      </button>
-    </div>
+<svelte:window onkeydown={handleKeydown} />
+
+<div class="plan-editor">
+  <div class="plan-toolbar">
+    <a href={p("/projects/:id", { params: { id } })} class="btn btn-sm btn-outline-secondary">Back</a>
+    <span class="flex-grow-1"></span>
+    {#if $planState.dirty}
+      <button class="btn btn-sm btn-success" onclick={() => saveDoc(id, planApi.saveDocument)}>Save *</button>
+    {/if}
+    {#if $planState.document}
+      <button class="btn btn-sm btn-outline-success ms-1" onclick={exportJSON}>Export</button>
+    {/if}
+    <label class="btn btn-sm btn-outline-info ms-1">Import<input type="file" accept=".json" class="d-none" onchange={handleImport} /></label>
+    {#if !hasC($planState.document)}
+      <button class="btn btn-sm btn-primary ms-1" onclick={() => (showInitModal = true)}>Init</button>
+    {/if}
   </div>
 
-  {#if loading}
-    <p>Loading...</p>
-  {:else if error}
-    <div class="alert alert-danger">{error}</div>
-  {:else}
-    {#if showAddGroup}
-      <div class="card mb-3 p-3">
-        <div class="input-group">
-          <input type="text" class="form-control" bind:value={newGroupTitle} placeholder="Group title" />
-          <button class="btn btn-primary" onclick={addGroup}>Add</button>
-          <button class="btn btn-secondary" onclick={() => (showAddGroup = false)}>Cancel</button>
-        </div>
-      </div>
-    {/if}
-    {#if showAddStep}
-      <div class="card mb-3 p-3">
-        <h5>Add Step</h5>
-        <div class="mb-2">
-          <label class="form-label">Title</label>
-          <input type="text" class="form-control" bind:value={newStepTitle} />
-        </div>
-        <div class="mb-2">
-          <label class="form-label">Group (optional)</label>
-          <select class="form-select" bind:value={parentGroupId}>
-            <option value={null}>-- No Group --</option>
-            {#each tree?.groups || [] as g}
-              <option value={g.id}>{g.title}</option>
-            {/each}
-          </select>
-        </div>
-        <div>
-          <button class="btn btn-primary" onclick={addStep}>Add</button>
-          <button class="btn btn-secondary ms-1" onclick={() => (showAddStep = false)}>Cancel</button>
-        </div>
-      </div>
-    {/if}
+  {#if $planState.loading}
+    <div class="p-3">Loading...</div>
+  {:else if $planState.error}
+    <div class="alert alert-danger m-2">{$planState.error}</div>
+  {:else if $planState.document}
+    {@const doc = $planState.document}
+    {@const selId = $planState.selectedNodeId}
+    {@const selNode = $selectedNode}
 
-    {#if !hasContent()}
-      <p class="text-muted">Plan is empty. Click "Initialize from Solutions" to populate from project solutions.</p>
-    {:else}
-      <div class="row">
-        <div class="col-md-8">
-          {#if tree?.groups}
-            {#each tree.groups as group}
-              <div class="card mb-2">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                  <strong>{group.title}</strong>
-                  <button class="btn btn-sm btn-outline-danger" onclick={() => deleteGroup(group.id)}>Delete</button>
-                </div>
-                {#if group.steps?.length > 0}
-                  <ul class="list-group list-group-flush">
-                    {#each group.steps as step (step.id)}
-                      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-                      <li
-                        class="list-group-item d-flex justify-content-between align-items-center"
-                        class:active={selectedStep?.id === step.id}
-                      >
-                        <span
-                          role="button"
-                          tabindex="0"
-                          onclick={() => selectStep(step)}
-                          onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') selectStep(step); }}
-                        >
-                          {step.title}
-                          {#if step.required_executions > 1}
-                            <span class="badge bg-info ms-1">x{step.required_executions}</span>
-                          {/if}
-                        </span>
-                        <button class="btn btn-sm btn-outline-danger" onclick={() => deleteStep(step.id)}>Delete</button>
-                      </li>
-                    {/each}
-                  </ul>
-                {/if}
+    <div class="plan-body">
+      <!-- Left -->
+      <div class="plan-left">
+        <ul class="nav nav-tabs nav-sm">
+          <li class="nav-item"><button class="nav-link" class:active={leftTab === "tree"} onclick={() => (leftTab = "tree")}>Tree</button></li>
+          <li class="nav-item"><button class="nav-link" class:active={leftTab === "definitions"} onclick={() => (leftTab = "definitions")}>Defs</button></li>
+          <li class="nav-item"><button class="nav-link" class:active={leftTab === "templates"} onclick={() => (leftTab = "templates")}>Templates</button></li>
+        </ul>
+        <div class="plan-left-content">
+          {#if leftTab === "tree"}
+            <div class="d-flex justify-content-between align-items-center p-2 border-bottom">
+              <small class="fw-bold text-muted">TREE</small>
+              <div>
+                <button class="btn btn-sm btn-outline-primary" onclick={() => addStep(null, doc.root.length)}>+S</button>
+                <button class="btn btn-sm btn-outline-secondary ms-1" onclick={() => addGroup(null, doc.root.length)}>+G</button>
               </div>
-            {/each}
-          {/if}
-
-          {#if tree?.ungrouped_steps && tree.ungrouped_steps.length > 0}
-            <div class="card mb-2">
-              <div class="card-header"><strong>Ungrouped Steps</strong></div>
-              <ul class="list-group list-group-flush">
-                {#each tree.ungrouped_steps as step (step.id)}
-                  <li
-                    class="list-group-item d-flex justify-content-between align-items-center"
-                    class:active={selectedStep?.id === step.id}
-                  >
-                    <span role="button" tabindex="0" onclick={() => selectStep(step)}>{step.title}</span>
-                    <button class="btn btn-sm btn-outline-danger" onclick={() => deleteStep(step.id)}>Delete</button>
-                  </li>
+            </div>
+            {#each doc.root as node}
+              <div class="plan-tree-item" class:selected={selId === node.id} class:is-group={node.type === "group"} onclick={() => selectNode(node.id)}>
+                <span class="plan-tree-icon">{node.type === "group" ? "■" : "∴"}</span>
+                <span class="plan-tree-title">{node.title}</span>
+                {#if node.type === "step" && node.required_executions > 1}<span class="badge bg-info ms-1">x{node.required_executions}</span>{/if}
+              </div>
+              {#if node.type === "group"}
+                {#each node.children as child}
+                  <div class="plan-tree-item child" class:selected={selId === child.id} class:is-group={child.type === "group"} onclick={() => selectNode(child.id)}>
+                    <span class="plan-tree-icon">{child.type === "group" ? "■" : "∴"}</span>
+                    <span class="plan-tree-title">{child.title}</span>
+                  </div>
                 {/each}
-              </ul>
+              {/if}
+            {/each}
+          {:else if leftTab === "definitions"}
+            <div class="p-2">
+              {#each (["input_conditions", "collection_items", "completion_criteria", "custom"] as const) as cat}
+                <div class="mb-2">
+                  <div class="d-flex justify-content-between align-items-center mb-1"><small class="fw-bold text-muted">{catLab(cat)}</small><button class="btn btn-sm btn-link" onclick={() => { defCategory = cat; showDefForm = true; }}>+</button></div>
+                  {#each doc.definitions[cat] as f (f.id)}
+                    <div class="def-item"><span class="me-1">{f.name}</span><small class="text-muted">({tLab(f.field_type)}{f.unit ? `, ${f.unit}` : ""})</small><button class="btn btn-sm btn-close-sm" onclick={() => removeDef(cat, f.id)}>&times;</button></div>
+                  {/each}
+                  {#if doc.definitions[cat].length === 0}<div class="text-muted" style="font-size:0.8rem">None</div>{/if}
+                </div>
+              {/each}
+              {#if showDefForm}
+                <div class="card card-body mb-2 bg-light">
+                  <div class="mb-2"><input class="form-control form-control-sm" placeholder="Name" bind:value={newDef.name} /></div>
+                  <div class="mb-2"><select class="form-select form-select-sm" bind:value={newDef.field_type}><option value="text">Text</option><option value="number">Number</option><option value="boolean">Boolean</option><option value="pass_fail">Pass/Fail</option><option value="threshold">Threshold</option><option value="measurement">Measurement</option></select></div>
+                  <div class="mb-2"><input class="form-control form-control-sm" placeholder="Unit" bind:value={newDef.unit} /></div>
+                  <div><button class="btn btn-sm btn-primary me-1" onclick={addNewDef}>Add</button><button class="btn btn-sm btn-secondary" onclick={() => (showDefForm = false)}>Cancel</button></div>
+                </div>
+              {/if}
             </div>
-          {/if}
-        </div>
-
-        <div class="col-md-4">
-          {#if selectedStep}
-            <div class="card">
-              <div class="card-header"><strong>Step Details</strong></div>
-              <div class="card-body">
-                <h5>{selectedStep.title}</h5>
-                <p>{selectedStep.description}</p>
-                <p><strong>Duration:</strong> {selectedStep.duration_estimate_minutes} min</p>
-                <p><strong>Required Executions:</strong> {selectedStep.required_executions}</p>
-                {#if selectedStep.completion_criteria}
-                  <p><strong>Completion Criteria:</strong> {selectedStep.completion_criteria}</p>
-                {/if}
-              </div>
+          {:else if leftTab === "templates"}
+            <div class="p-2">
+              <small class="fw-bold text-muted d-block mb-2">TEMPLATES</small>
+              {#if selId}
+                <div class="mb-2"><div class="input-group input-group-sm"><input class="form-control" placeholder="Name" bind:value={newTemplateName} /><button class="btn btn-outline-primary" onclick={() => { if (newTemplateName) { addTemplate(newTemplateName, selId); newTemplateName = ""; } }} disabled={!newTemplateName}>Save</button></div></div>
+              {/if}
+              {#each doc.templates as t (t.id)}
+                <div class="def-item d-flex justify-content-between align-items-start"><div><span>{t.name}</span><small class="text-muted d-block">{t.step.title}</small></div><div><button class="btn btn-sm btn-link p-0" onclick={() => applyTemplate(t.id, selId)} title="Apply">→</button><button class="btn btn-sm btn-close-sm ms-1" onclick={() => delTemplate(t.id)}>&times;</button></div></div>
+              {/each}
+              {#if doc.templates.length === 0}<div class="text-muted" style="font-size:0.8rem">Select a step then save as template.</div>{/if}
             </div>
-          {:else}
-            <p class="text-muted">Select a step to view details.</p>
           {/if}
         </div>
       </div>
-    {/if}
+
+      <!-- Center -->
+      <div class="plan-center" oncontextmenu={(e) => { e.preventDefault(); ctxMenu(e, null, null, 0); }} onclick={closeCtx} role="presentation">
+        {#if !hasC(doc)}
+          <div class="plan-empty"><div class="mb-3 text-muted">Plan is empty</div><button class="btn btn-outline-primary me-2" onclick={() => addStep(null, 0)}>+ Step</button><button class="btn btn-outline-secondary me-2" onclick={() => addGroup(null, 0)}>+ Group</button><br /><button class="btn btn-primary mt-2" onclick={() => (showInitModal = true)}>Initialize from Solutions</button></div>
+        {:else}
+          <PlanCanvas nodes={doc.root} selectedNodeId={selId} definitions={doc.definitions} onContextMenu={ctxMenu} onselect={selectNode} />
+        {/if}
+        {#if contextMenu}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div class="context-menu" style="position:fixed;left:{contextMenu.x}px;top:{contextMenu.y}px" onclick={(e) => e.stopPropagation()}>
+            <button class="context-item" onclick={() => { handleCanvasAction("add-step", { nodeId: contextMenu!.nodeId ?? contextMenu!.parentId ?? "" }); closeCtx(); }}>+ Add Step</button>
+            <button class="context-item" onclick={() => { handleCanvasAction("add-group", { nodeId: contextMenu!.nodeId ?? contextMenu!.parentId ?? "" }); closeCtx(); }}>+ Add Group</button>
+            {#if contextMenu?.nodeId}
+              <hr class="my-1" />
+              <button class="context-item" onclick={() => { handleCanvasAction("duplicate", { nodeId: contextMenu!.nodeId! }); closeCtx(); }}>Duplicate</button>
+              <button class="context-item" onclick={() => { handleCanvasAction("move-up", { nodeId: contextMenu!.nodeId! }); closeCtx(); }}>Move Up</button>
+              <button class="context-item" onclick={() => { handleCanvasAction("move-down", { nodeId: contextMenu!.nodeId! }); closeCtx(); }}>Move Down</button>
+              <button class="context-item" onclick={() => { handleCanvasAction("save-as-template", { nodeId: contextMenu!.nodeId! }); closeCtx(); }}>Save as Template</button>
+              <hr class="my-1" />
+              <button class="context-item text-danger" onclick={() => { handleCanvasAction("delete", { nodeId: contextMenu!.nodeId! }); closeCtx(); }}>Delete</button>
+            {/if}
+          </div>
+        {/if}
+      </div>
+
+      <!-- Right -->
+      <div class="plan-right">
+        {#if selNode}
+          <PlanStepEditor node={selNode} definitions={doc.definitions} onupdate={(p) => updateSelected(p)} onbindsync={() => { if (selId) { syncFieldBindings(selId); saveDoc(id, planApi.saveDocument); } }} />
+        {:else}
+          <div class="p-3 text-center" style="margin-top:3rem"><div style="font-size:3rem;opacity:0.3">?</div><div class="text-muted">Select a step to edit</div></div>
+        {/if}
+      </div>
+    </div>
   {/if}
 
-  <div class="mt-3">
-    <a href={p("/projects/:id", { params: { id } })} class="btn btn-secondary">Back to Project</a>
-    <a href={p("/projects/:id/logging", { params: { id } })} class="btn btn-success ms-2">Start Logging</a>
-  </div>
+  {#if showInitModal}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="modal-backdrop" onclick={() => (showInitModal = false)}></div>
+    <div class="modal d-block" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Initialize Plan</h5><button class="btn-close" onclick={() => (showInitModal = false)}></button></div>
+      <div class="modal-body"><p>Convert all project solutions and their steps into the plan document.</p></div>
+      <div class="modal-footer"><button class="btn btn-secondary" onclick={() => (showInitModal = false)}>Cancel</button><button class="btn btn-primary" onclick={() => { showInitModal = false; initDoc(id, planApi.initialize); }}>Initialize</button></div>
+    </div></div></div>
+  {/if}
 </div>
+
+<style>
+  .plan-editor{display:flex;flex-direction:column;height:calc(100vh - 70px);overflow:hidden}
+  .plan-toolbar{display:flex;align-items:center;padding:6px 12px;border-bottom:1px solid #dee2e6;background:#f8f9fa;flex-shrink:0;gap:4px}
+  .plan-body{display:flex;flex:1;overflow:hidden}
+  .plan-left{width:250px;min-width:200px;border-right:1px solid #dee2e6;display:flex;flex-direction:column;overflow:hidden}
+  .plan-left-content{flex:1;overflow-y:auto}
+  .plan-tree-item{display:flex;align-items:center;padding:4px 8px;cursor:pointer;font-size:.85rem}
+  .plan-tree-item:hover{background:#e9ecef}
+  .plan-tree-item.selected{background:#cfe2ff}
+  .plan-tree-item.child{padding-left:24px}
+  .plan-tree-item.is-group{font-weight:600}
+  .plan-tree-icon{margin-right:4px;font-size:.7rem}
+  .plan-tree-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .plan-center{flex:1;overflow-y:auto;padding:12px;position:relative}
+  .plan-right{width:350px;min-width:280px;border-left:1px solid #dee2e6;overflow-y:auto;background:#fafafa}
+  .plan-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%}
+  .nav-sm .nav-link{padding:4px 10px;font-size:.8rem}
+  .def-item{display:flex;align-items:center;padding:2px 8px;font-size:.8rem;border-left:2px solid #dee2e6;margin:2px 0}
+  .btn-close-sm{font-size:.7rem;padding:0;border:none;background:none;color:#999;cursor:pointer;margin-left:auto}
+  .context-menu{background:#fff;border:1px solid #dee2e6;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);padding:4px 0;min-width:160px;z-index:1000}
+  .context-item{display:block;width:100%;text-align:left;padding:6px 14px;border:none;background:none;font-size:.85rem;cursor:pointer}
+  .context-item:hover{background:#e9ecef}
+  .flex-grow-1{flex:1}
+  .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:1040}
+  .modal{z-index:1050}
+</style>

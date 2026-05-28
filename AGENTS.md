@@ -64,6 +64,50 @@ tpl/
 - **Coverage tracking**: Auto-detect from execution history + manual override
 - **Single user**: No login/auth, but `user_id` fields reserved on all tables
 
+### Plan Document JSON Model (NEW)
+
+Plans are stored as a single `plan_document JSONB` on the `projects` table. The schema:
+
+```
+PlanDocument
+  ├── version: int (1)
+  ├── definitions: PlanDefinitions
+  │     ├── input_conditions: PlanFieldDef[]
+  │     ├── collection_items: PlanFieldDef[]
+  │     ├── completion_criteria: PlanFieldDef[]
+  │     └── custom: PlanFieldDef[]
+  ├── root: PlanNode[]           (tree — groups contain child steps/groups)
+  └── templates: PlanTemplate[]  (per-plan, reusable step presets)
+
+PlanFieldDef: { id, name, field_type (text|number|boolean|pass_fail|threshold|measurement), unit?, default_value? }
+PlanNode: { id, type (group|step), title, children[], description?, duration_minutes, changeover_minutes, input_conditions[], collection_items[], completion_criteria[], system_config?, required_executions }
+FieldBinding: { definition_id, value?, operator?, target_value? }
+PlanTemplate: { id, name, step: PlanNode }
+```
+
+**Endpoints**:
+- `GET /projects/{id}/plan-document` — load plan JSON
+- `PUT /projects/{id}/plan-document` — save plan JSON (full replace)
+- `POST /projects/{id}/plan/initialize` — convert solutions → PlanDocument JSON
+
+**Plan Editor** (three-panel layout):
+- Left (250px): tabs — Tree / Definitions / Templates
+- Center: canvas with recursive tree rendering + right-click context menu
+- Right (350px): Step detail editor with dynamic field bindings
+
+**Key files**:
+- `tpl-frontend/src/types/plan.ts` — TypeScript types
+- `tpl-frontend/src/stores/plan.ts` — writable store
+- `tpl-frontend/src/lib/plan-utils.ts` — tree manipulation (insert, remove, find, move, duplicate, export/import)
+- `tpl-frontend/src/pages/plan/PlanEditor.svelte` — main page
+- `tpl-frontend/src/pages/plan/PlanCanvas.svelte` — recursive tree
+- `tpl-frontend/src/pages/plan/PlanStepEditor.svelte` — detail editor
+- `tpl-backend/tpl/models.py` — PlanDocument Pydantic models
+- `tpl-backend/tpl/services/plan_service.py` — get/save/initialize
+- `tpl-backend/tpl/routers/projects.py` — plan-document endpoints
+
+**Old plan tables** (`plan_groups`, `plan_steps`) are deprecated but kept for backward compatibility.
+
 ---
 
 ## API Endpoints (40+)

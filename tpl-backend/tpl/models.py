@@ -307,3 +307,59 @@ class SyncPayload(BaseModel):
     plan_groups: list[dict[str, Any]] = Field(default_factory=list)
     plan_steps: list[dict[str, Any]] = Field(default_factory=list)
     step_executions: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class PlanFieldDef(BaseModel):
+    id: str
+    name: str
+    field_type: str
+    unit: str | None = None
+    default_value: Any | None = None
+
+
+class PlanDefinitions(BaseModel):
+    input_conditions: list[PlanFieldDef] = Field(default_factory=list)
+    collection_items: list[PlanFieldDef] = Field(default_factory=list)
+    completion_criteria: list[PlanFieldDef] = Field(default_factory=list)
+    custom: list[PlanFieldDef] = Field(default_factory=list)
+
+
+class FieldBinding(BaseModel):
+    definition_id: str
+    value: Any | None = None
+    operator: str | None = None
+    target_value: Any | None = None
+
+
+class PlanNode(BaseModel):
+    id: str
+    type: str
+    title: str
+    children: list["PlanNode"] = Field(default_factory=list)
+    description: str | None = None
+    duration_minutes: int = 60
+    changeover_minutes: int = 0
+    input_conditions: list[FieldBinding] = Field(default_factory=list)
+    collection_items: list[FieldBinding] = Field(default_factory=list)
+    completion_criteria: list[FieldBinding] = Field(default_factory=list)
+    system_config: dict[str, Any] | None = None
+    required_executions: int = 1
+    step_template_id: str | None = None
+    solution_step_id: str | None = None
+
+
+class PlanTemplate(BaseModel):
+    id: str
+    name: str
+    step: PlanNode
+
+
+class PlanDocument(BaseModel):
+    version: int = 1
+    definitions: PlanDefinitions = Field(default_factory=PlanDefinitions)
+    root: list[PlanNode] = Field(default_factory=list)
+    templates: list[PlanTemplate] = Field(default_factory=list)
+
+
+class PlanDocumentUpdate(BaseModel):
+    document: PlanDocument

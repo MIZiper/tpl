@@ -11,8 +11,10 @@ from tpl.models import (
     ProjectRiskCreate,
     Solution,
     LinkRiskRequest,
+    PlanDocument,
+    PlanDocumentUpdate,
 )
-from tpl.services import project_service
+from tpl.services import project_service, plan_service
 
 router = APIRouter(tags=["projects"])
 
@@ -97,3 +99,19 @@ async def remove_project_solution(project_id: str, solution_id: str, db: Connect
 async def get_recommendations(risk_ids: str, db: Connection = Depends(get_connection)):
     ids = [rid.strip() for rid in risk_ids.split(",") if rid.strip()]
     return await project_service.get_recommendations(db, ids)
+
+
+@router.get("/projects/{project_id}/plan-document", response_model=PlanDocument)
+async def get_plan_document(project_id: str, db: Connection = Depends(get_connection)):
+    return await plan_service.get_plan_document(db, project_id)
+
+
+@router.put("/projects/{project_id}/plan-document", status_code=204)
+async def save_plan_document(project_id: str, body: PlanDocumentUpdate, db: Connection = Depends(get_connection)):
+    await plan_service.save_plan_document(db, project_id, body.document)
+    return None
+
+
+@router.post("/projects/{project_id}/plan/initialize", response_model=PlanDocument)
+async def initialize_plan(project_id: str, db: Connection = Depends(get_connection)):
+    return await plan_service.initialize_plan(db, project_id)
