@@ -8,28 +8,28 @@ from tpl.config import config
 _pool: asyncpg.Pool | None = None
 
 
+async def _init_connection(conn: asyncpg.Connection) -> None:
+    await conn.set_type_codec(
+        "uuid",
+        encoder=str,
+        decoder=str,
+        schema="pg_catalog",
+    )
+    await conn.set_type_codec(
+        "jsonb",
+        encoder=str,
+        decoder=json.loads,
+        schema="pg_catalog",
+    )
+
+
 async def _init_pool() -> asyncpg.Pool:
-    pool = await asyncpg.create_pool(
+    return await asyncpg.create_pool(
         dsn=config.database_url,
         min_size=config.database_min_connections,
         max_size=config.database_max_connections,
+        init=_init_connection,
     )
-
-    async with pool.acquire() as conn:
-        await conn.set_type_codec(
-            "uuid",
-            encoder=str,
-            decoder=str,
-            schema="pg_catalog",
-        )
-        await conn.set_type_codec(
-            "jsonb",
-            encoder=str,
-            decoder=json.loads,
-            schema="pg_catalog",
-        )
-
-    return pool
 
 
 async def get_pool() -> asyncpg.Pool:

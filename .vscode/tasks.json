@@ -1,0 +1,73 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+        {
+            "label": "(TPL) PostgreSQL",
+            "type": "shell",
+            "command": [
+                "cd tpl-backend/",
+                "&&",
+                "podman run -it --rm --name tpl_postgres",
+                "-e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=password -e POSTGRES_DB=tpl -p 5437:5432",
+                "-v ./tpl/sql/:/docker-entrypoint-initdb.d/",
+                "postgres"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "(TPL) backend",
+            "type": "shell",
+            "command": [
+                "cd tpl-backend/",
+                "&&",
+                "until pg_isready -h localhost -p 5437; do echo 'Waiting for Postgres...'; sleep 1; done",
+                "&&",
+                "uv run uvicorn --reload --port=8037 tpl.main:app"
+            ],
+            "problemMatcher": [
+                "$python"
+            ],
+            "options": {
+                "env": {
+					"DATABASE_URL": "postgresql://postgres:password@localhost:5437/tpl",
+                    "POSTGRES_PORT": "5437",
+                    "KEYCLOAK_URL": "http://localhost:8080",
+                    "KEYCLOAK_REALM": "miz",
+                    "KEYCLOAK_CLIENT_ID": "tpl-frontend",
+                    "KEYCLOAK_CLIENT_SECRET": "",
+                }
+            }
+        },
+        {
+            "label": "(TPL) frontend",
+            "type": "shell",
+            "command": [
+                "cd tpl-frontend/",
+                "&&",
+                "until /bin/nc -z localhost 8037; do sleep 1; done",
+                "&&",
+                "pnpm run dev --port 5137 --open",
+            ],
+            "options": {
+                "env": {
+                    "VITE_API_PORT": "8037"
+                }
+            },
+            "problemMatcher": [
+                "$tsc"
+            ]
+        },
+        {
+            "label": "🚀 TPL",
+            "dependsOrder": "parallel",
+            "dependsOn": [
+                "(TPL) PostgreSQL",
+                "(TPL) backend",
+                "(TPL) frontend"
+            ],
+            "group": {
+                "kind": "build",
+            }
+        },
+	]
+}
