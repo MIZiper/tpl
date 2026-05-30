@@ -84,7 +84,7 @@
     delNode($planState.selectedNodeId); saveDoc(id, planApi.saveDocument);
   }
 
-  function catLab(c: keyof PlanDefinitions) { return { input_conditions: "Input Conditions", collection_items: "Collection Items", completion_criteria: "Completion Criteria", custom: "Custom" }[c]; }
+  function catLab(c: keyof PlanDefinitions) { return { input_conditions: "Input Conditions", collection_items: "Measurement Items", completion_criteria: "Completion Criteria", custom: "Custom" }[c]; }
   function tLab(t: string) { return { text: "Text", number: "Number", boolean: "Boolean", pass_fail: "Pass/Fail", threshold: "Threshold", measurement: "Measurement" }[t] || t; }
   function hasC(d: PlanDocument | null) { return !!(d && (d.root.length > 0 || d.definitions.input_conditions.length > 0 || d.templates.length > 0)); }
 </script>
@@ -135,7 +135,7 @@
             </div>
             {#each doc.root as node}
               <div class="plan-tree-item" class:selected={selId === node.id} class:is-group={node.type === "group"} onclick={() => selectNode(node.id)}>
-                <span class="plan-tree-icon">{node.type === "group" ? "■" : "∴"}</span>
+                <span class="plan-tree-icon">{node.type === "group" ? "\u25A0" : "\u25CF"}</span>
                 <span class="plan-tree-title">{node.title}</span>
                 {#if node.type === "step" && node.required_executions > 1}<span class="badge bg-info ms-1">x{node.required_executions}</span>{/if}
               </div>
@@ -171,13 +171,18 @@
           {:else if leftTab === "templates"}
             <div class="p-2">
               <small class="fw-bold text-muted d-block mb-2">TEMPLATES</small>
-              {#if selId}
+              {#if selId && selNode?.type === "step"}
                 <div class="mb-2"><div class="input-group input-group-sm"><input class="form-control" placeholder="Name" bind:value={newTemplateName} /><button class="btn btn-outline-primary" onclick={() => { if (newTemplateName) { addTemplate(newTemplateName, selId); newTemplateName = ""; } }} disabled={!newTemplateName}>Save</button></div></div>
               {/if}
               {#each doc.templates as t (t.id)}
-                <div class="def-item d-flex justify-content-between align-items-start"><div><span>{t.name}</span><small class="text-muted d-block">{t.step.title}</small></div><div><button class="btn btn-sm btn-link p-0" onclick={() => applyTemplate(t.id, selId)} title="Apply">→</button><button class="btn btn-sm btn-close-sm ms-1" onclick={() => delTemplate(t.id)}>&times;</button></div></div>
+                <div class="def-item d-flex justify-content-between align-items-start"><div><span>{t.name}</span><small class="text-muted d-block">{t.step.title}</small></div><div><button class="btn btn-sm btn-link p-0" onclick={() => applyTemplate(t.id, selId)} title="Apply">{"\u21E2"}</button><button class="btn btn-sm btn-close-sm ms-1" onclick={() => delTemplate(t.id)}>&times;</button></div></div>
               {/each}
-              {#if doc.templates.length === 0}<div class="text-muted" style="font-size:0.8rem">Select a step then save as template.</div>{/if}
+              {#if doc.templates.length === 0}
+                <div class="text-muted" style="font-size:0.8rem">Select a step then save as template.</div>
+              {/if}
+              {#if !selId || selNode?.type === "step"}
+                <div class="text-muted mt-1" style="font-size:0.75rem">Select a group to apply templates.</div>
+              {/if}
             </div>
           {/if}
         </div>
@@ -213,7 +218,7 @@
         {#if selNode}
           <PlanStepEditor node={selNode} definitions={doc.definitions} onupdate={(p) => updateSelected(p)} onbindsync={() => { if (selId) { syncFieldBindings(selId); saveDoc(id, planApi.saveDocument); } }} />
         {:else}
-          <div class="p-3 text-center" style="margin-top:3rem"><div style="font-size:3rem;opacity:0.3">?</div><div class="text-muted">Select a step to edit</div></div>
+            <div class="p-3 text-center" style="margin-top:3rem"><div style="font-size:3rem;opacity:0.3">{"\u2699"}</div><div class="text-muted">Select a step to edit</div></div>
         {/if}
       </div>
     </div>

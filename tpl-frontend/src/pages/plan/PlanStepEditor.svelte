@@ -58,7 +58,7 @@
   function categoryLabel(cat: keyof PlanDefinitions): string {
     const map: Record<string, string> = {
       input_conditions: "Input Conditions",
-      collection_items: "Collection Items",
+      collection_items: "Measurement Items",
       completion_criteria: "Completion Criteria",
       custom: "Custom",
     };
@@ -94,6 +94,18 @@
       ></textarea>
     </div>
 
+    <div class="mb-3">
+      <label class="form-label fw-bold small">Required Executions</label>
+      <input
+        type="number"
+        class="form-control form-control-sm"
+        min="1"
+        value={node.required_executions}
+        oninput={(e) => onupdate({ required_executions: parseInt((e.target as HTMLInputElement).value) || 1 })}
+      />
+    </div>
+
+    {#if node.type === "step"}
     <div class="row mb-3">
       <div class="col-6">
         <label class="form-label fw-bold small">Duration (min)</label>
@@ -118,18 +130,9 @@
     <div class="mb-3">
       <label class="form-label fw-bold small">Total: {node.duration_minutes + node.changeover_minutes} min</label>
     </div>
+    {/if}
 
-    <div class="mb-3">
-      <label class="form-label fw-bold small">Required Executions</label>
-      <input
-        type="number"
-        class="form-control form-control-sm"
-        min="1"
-        value={node.required_executions}
-        oninput={(e) => onupdate({ required_executions: parseInt((e.target as HTMLInputElement).value) || 1 })}
-      />
-    </div>
-
+    {#if node.type === "step"}
     <!-- Bindings per category -->
     <div class="mb-3">
       <div class="d-flex justify-content-between align-items-center mb-1">
@@ -241,6 +244,7 @@
         }}
       ></textarea>
     </div>
+    {/if}
 
     {#if node.step_template_id}
       <div class="small text-muted mb-2">From template: {node.step_template_id}</div>

@@ -28,9 +28,12 @@
         tabindex="0"
       >
         <div class="canvas-group-header">
-          <span class="collapse-toggle">{node.children.length > 0 ? "?" : "?"}</span>
+          <span class="collapse-toggle">{node.children.length > 0 ? "\u25BE" : "\u25B8"}</span>
           <span class="canvas-node-title">{node.title}</span>
           <span class="flex-grow-1"></span>
+          {#if node.required_executions > 1}
+            <span class="canvas-badge execs-badge" title="Executions">x{node.required_executions}</span>
+          {/if}
           <span class="canvas-badge group-badge">Group</span>
         </div>
       </div>
@@ -47,7 +50,7 @@
               tabindex="0"
             >
               <div class="canvas-step-row">
-                <span class="canvas-step-icon">{child.type === "group" ? "?" : "?"}</span>
+                <span class="canvas-step-icon">{child.type === "group" ? "\u25A0" : "\u25CF"}</span>
                 <span class="canvas-node-title">{child.title}</span>
                 <span class="flex-grow-1"></span>
                 {#if child.type === "step"}
@@ -86,7 +89,7 @@
         tabindex="0"
       >
         <div class="canvas-step-row">
-          <span class="canvas-step-icon">?</span>
+          <span class="canvas-step-icon">{"\u25CF"}</span>
           <span class="canvas-node-title">{node.title}</span>
           <span class="flex-grow-1"></span>
           <span class="canvas-badge duration-badge" title="Duration">{node.duration_minutes} min</span>
@@ -123,6 +126,7 @@
     padding: 8px 12px;
     display: flex;
     align-items: center;
+    gap: 6px;
     cursor: pointer;
     font-weight: 600;
     font-size: 0.9rem;
@@ -182,7 +186,7 @@
   .group-badge { background: #cfe2ff; color: #084298; }
   .info-badge { background: #f8d7da; color: #842029; }
   .collapse-toggle {
-    margin-right: 4px;
+    margin-right: 0;
     font-size: 0.6rem;
   }
   .flex-grow-1 { flex: 1; }
