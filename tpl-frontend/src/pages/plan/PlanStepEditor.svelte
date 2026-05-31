@@ -5,12 +5,10 @@
     node,
     definitions = null,
     onupdate = (_patch: Partial<PlanNode>) => {},
-    onbindsync = () => {},
   }: {
     node: PlanNode;
     definitions: PlanDefinitions | null;
     onupdate: (patch: Partial<PlanNode>) => void;
-    onbindsync: () => void;
   } = $props();
 
   function defName(fieldId: string): string {
@@ -63,6 +61,14 @@
       custom: "Custom",
     };
     return map[cat] || cat;
+  }
+
+  function addBinding(cat: "input_conditions" | "collection_items" | "completion_criteria", defId: string) {
+    onupdate({ [cat]: [...node[cat], { definition_id: defId, value: null, operator: null, target_value: null }] });
+  }
+
+  function removeBinding(cat: "input_conditions" | "collection_items" | "completion_criteria", defId: string) {
+    onupdate({ [cat]: node[cat].filter((b) => b.definition_id !== defId) });
   }
 </script>
 
@@ -135,91 +141,67 @@
     {#if node.type === "step"}
     <!-- Bindings per category -->
     <div class="mb-3">
-      <div class="d-flex justify-content-between align-items-center mb-1">
-        <span class="fw-bold small">Field Bindings</span>
-        <button class="btn btn-sm btn-outline-secondary" onclick={onbindsync} title="Sync from definitions">
-          Sync
-        </button>
-      </div>
+      <span class="fw-bold small d-block mb-2">Field Bindings</span>
 
       {#if definitions}
         {#each (["input_conditions", "collection_items", "completion_criteria"] as const) as cat}
-          {#if definitions[cat].length > 0}
+          {@const orphaned = node[cat].filter(b => !definitions[cat].find(f => f.id === b.definition_id))}
+          {#if definitions[cat].length > 0 || orphaned.length > 0}
             <div class="mb-3">
               <div class="binding-category">{categoryLabel(cat)}</div>
               {#each definitions[cat] as f (f.id)}
-                {#if node.type === "step" || cat === "input_conditions"}
-                  {@const binding = node[cat].find(b => b.definition_id === f.id)}
-                  {#if binding}
-                    <div class="binding-item">
+                {@const binding = node[cat].find(b => b.definition_id === f.id)}
+                {#if binding}
+                  <div class="binding-item active">
+                    <div class="d-flex align-items-center justify-content-between">
                       <div class="d-flex align-items-center">
                         <span class="binding-name">{f.name}</span>
-                        {#if f.unit}
-                          <small class="text-muted ms-1">({f.unit})</small>
-                        {/if}
+                        {#if f.unit}<small class="text-muted ms-1">({f.unit})</small>{/if}
                       </div>
-                      <div class="binding-value mt-1">
-                        {#if f.field_type === "boolean" || f.field_type === "pass_fail"}
-                          <select
-                            class="form-select form-select-sm"
-                            value={String(binding.value ?? "")}
-                            onchange={(e) => {
-                              const v = (e.target as HTMLSelectElement).value;
-                              updateBinding(cat, f.id, { value: v === "true" ? true : v === "false" ? false : null });
-                            }}
-                          >
-                            <option value="">--</option>
-                            <option value="true">Pass / True</option>
-                            <option value="false">Fail / False</option>
-                          </select>
-                        {:else if f.field_type === "threshold"}
-                          <div class="input-group input-group-sm">
-                            <select
-                              class="form-select form-select-sm flex-shrink-1"
-                              value={binding.operator ?? "<="}
-                              onchange={(e) => updateBinding(cat, f.id, { operator: (e.target as HTMLSelectElement).value })}
-                              style="width:60px"
-                            >
-                              <option value="<=">&le;</option>
-                              <option value=">=">&ge;</option>
-                              <option value="==">=</option>
-                              <option value="<">&lt;</option>
-                              <option value=">">&gt;</option>
-                            </select>
-                            <input
-                              type="number"
-                              class="form-control form-control-sm"
-                              value={binding.target_value ?? ""}
-                              oninput={(e) => updateBinding(cat, f.id, { target_value: parseFloat((e.target as HTMLInputElement).value) || null })}
-                              placeholder="Target"
-                            />
-                          </div>
-                        {:else if f.field_type === "measurement"}
-                          <div class="d-flex gap-1">
-                            <input
-                              type="number"
-                              class="form-control form-control-sm"
-                              value={binding.value ?? ""}
-                              oninput={(e) => updateBinding(cat, f.id, { value: parseFloat((e.target as HTMLInputElement).value) || null })}
-                              placeholder="Value"
-                            />
-                          </div>
-                        {:else}
-                          <input
-                            type={f.field_type === "number" ? "number" : "text"}
-                            class="form-control form-control-sm"
-                            value={binding.value ?? ""}
-                            oninput={(e) => {
-                              const raw = (e.target as HTMLInputElement).value;
-                              const v = f.field_type === "number" ? (parseFloat(raw) || null) : raw;
-                              updateBinding(cat, f.id, { value: v });
-                            }}
-                          />
-                        {/if}
-                      </div>
+                      <button class="btn btn-sm btn-close-sm" onclick={() => removeBinding(cat, f.id)} title="Remove binding">&times;</button>
                     </div>
-                  {/if}
+                    <div class="binding-value mt-1">
+                      {#if f.field_type === "boolean" || f.field_type === "pass_fail"}
+                        <select class="form-select form-select-sm" value={String(binding.value ?? "")} onchange={(e) => { const v = (e.target as HTMLSelectElement).value; updateBinding(cat, f.id, { value: v === "true" ? true : v === "false" ? false : null }); }}>
+                          <option value="">--</option>
+                          <option value="true">Pass / True</option>
+                          <option value="false">Fail / False</option>
+                        </select>
+                      {:else if f.field_type === "threshold"}
+                        <div class="input-group input-group-sm">
+                          <select class="form-select form-select-sm flex-shrink-1" value={binding.operator ?? "<="} onchange={(e) => updateBinding(cat, f.id, { operator: (e.target as HTMLSelectElement).value })} style="width:60px">
+                            <option value="<=">&le;</option><option value=">=">&ge;</option><option value="==">=</option><option value="<">&lt;</option><option value=">">&gt;</option>
+                          </select>
+                          <input type="number" class="form-control form-control-sm" value={binding.target_value ?? ""} oninput={(e) => updateBinding(cat, f.id, { target_value: parseFloat((e.target as HTMLInputElement).value) || null })} placeholder="Target" />
+                        </div>
+                      {:else if f.field_type === "measurement"}
+                        <div class="d-flex gap-1"><input type="number" class="form-control form-control-sm" value={binding.value ?? ""} oninput={(e) => updateBinding(cat, f.id, { value: parseFloat((e.target as HTMLInputElement).value) || null })} placeholder="Value" /></div>
+                      {:else}
+                        <input type={f.field_type === "number" ? "number" : "text"} class="form-control form-control-sm" value={binding.value ?? ""} oninput={(e) => { const raw = (e.target as HTMLInputElement).value; const v = f.field_type === "number" ? (parseFloat(raw) || null) : raw; updateBinding(cat, f.id, { value: v }); }} />
+                      {/if}
+                    </div>
+                  </div>
                 {/if}
+              {/each}
+              {#if definitions[cat].some(f => !node[cat].find(b => b.definition_id === f.id))}
+                <div class="add-binding-area">
+                  {#each definitions[cat] as f (f.id)}
+                    {#if !node[cat].find(b => b.definition_id === f.id)}
+                      <button class="add-binding-btn" onclick={() => addBinding(cat, f.id)}>+ {f.name}{#if f.unit}<small class="text-muted"> ({f.unit})</small>{/if}</button>
+                    {/if}
+                  {/each}
+                </div>
+              {/if}
+              {#each orphaned as binding (binding.definition_id)}
+                <div class="binding-item orphaned">
+                  <div class="d-flex align-items-center justify-content-between">
+                    <span class="orphaned-label">[deleted] {binding.definition_id.slice(0, 8)}...</span>
+                    <button class="btn btn-sm btn-close-sm" onclick={() => removeBinding(cat, binding.definition_id)}>&times;</button>
+                  </div>
+                  <div class="binding-value mt-1">
+                    <input type="text" class="form-control form-control-sm" value={binding.value ?? ""} oninput={(e) => updateBinding(cat, binding.definition_id, { value: (e.target as HTMLInputElement).value || null })} />
+                  </div>
+                </div>
               {/each}
             </div>
           {/if}
@@ -283,14 +265,45 @@
   .binding-item {
     padding: 6px 8px;
     background: #fff;
-    border: 1px solid #eee;
+    border: 1px solid #dee2e6;
     border-radius: 4px;
     margin-bottom: 3px;
+  }
+  .binding-item.active {
+    border-color: #0d6efd;
+    background: #f8f9ff;
+  }
+  .binding-item.orphaned {
+    border-color: #ffc107;
+    background: #fff9e6;
+  }
+  .orphaned-label {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: #664d03;
   }
   .binding-name {
     font-size: 0.8rem;
     font-weight: 500;
   }
   .binding-value {
+  }
+  .add-binding-area {
+    padding: 4px 0;
+  }
+  .add-binding-btn {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 3px 8px;
+    border: none;
+    background: none;
+    font-size: 0.8rem;
+    color: #0d6efd;
+    cursor: pointer;
+    border-radius: 3px;
+  }
+  .add-binding-btn:hover {
+    background: #e8f0fe;
   }
 </style>

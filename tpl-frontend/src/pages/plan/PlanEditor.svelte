@@ -22,7 +22,6 @@
     delTemplate,
     exportJSON,
     importJSON,
-    syncFieldBindings,
   } from "../../stores/plan";
   import { planApi } from "../../lib/api";
   import type { PlanNode, PlanFieldDef, PlanDefinitions } from "../../types/plan";
@@ -216,7 +215,7 @@
       <!-- Right -->
       <div class="plan-right">
         {#if selNode}
-          <PlanStepEditor node={selNode} definitions={doc.definitions} onupdate={(p) => updateSelected(p)} onbindsync={() => { if (selId) { syncFieldBindings(selId); saveDoc(id, planApi.saveDocument); } }} />
+          <PlanStepEditor node={selNode} definitions={doc.definitions} onupdate={(p) => updateSelected(p)} />
         {:else}
             <div class="p-3 text-center" style="margin-top:3rem"><div style="font-size:3rem;opacity:0.3">{"\u2699"}</div><div class="text-muted">Select a step to edit</div></div>
         {/if}
