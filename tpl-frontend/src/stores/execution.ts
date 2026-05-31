@@ -89,13 +89,12 @@ export function flatPlanSteps(planDoc: PlanDocument | null): PlanNode[] {
 }
 
 export function adhocEntry(title: string, notes: string | null): ExecutionEntry {
-  const now = new Date().toISOString();
   return {
     id: generateId(),
     plan_step_id: null,
     step_title: title,
     type: "adhoc",
     required_executions: 1,
-    executions: [{ id: generateId(), status: "completed", started_at: now, completed_at: now, input_readings: [], collection_results: [], criteria_results: [], notes }],
+    executions: [],
   };
 }

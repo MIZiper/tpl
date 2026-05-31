@@ -36,6 +36,11 @@ export interface ExecutionEntry {
   type: "planned" | "adhoc";
   required_executions: number;
   executions: ExecutionRun[];
+  selected_bindings?: {
+    input_conditions: string[];
+    collection_items: string[];
+    completion_criteria: string[];
+  };
 }
 
 export interface ExecutionDoc {

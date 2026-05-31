@@ -404,6 +404,7 @@ class ExecutionEntry(BaseModel):
     type: str = "planned"
     required_executions: int = 1
     executions: list[ExecutionRun] = Field(default_factory=list)
+    selected_bindings: dict[str, list[str]] | None = None
 
 
 class ExecutionDoc(BaseModel):

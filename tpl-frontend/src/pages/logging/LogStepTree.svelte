@@ -75,55 +75,23 @@
 
 <style>
   .log-group-header {
-    display: flex;
-    align-items: center;
-    padding: 5px 10px;
-    font-size: 0.8rem;
-    font-weight: 600;
-    color: #495057;
-    background: #f0f1f2;
-    border-bottom: 1px solid #dee2e6;
-    border-top: 1px solid #dee2e6;
-    margin-top: 1px;
+    display: flex; align-items: center; padding: 5px 10px;
+    font-size: 0.8rem; font-weight: 600; color: #495057; background: #f0f1f2;
+    border-bottom: 1px solid #dee2e6; border-top: 1px solid #dee2e6; margin-top: 1px;
   }
-  .group-toggle {
-    margin-right: 6px;
-    font-size: 0.65rem;
-    color: #888;
-  }
-  .group-title {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
+  .group-toggle { margin-right: 6px; font-size: 0.65rem; color: #888; }
+  .group-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.5px; }
   .log-step {
-    display: flex;
-    align-items: center;
-    padding: 4px 10px;
-    cursor: pointer;
-    font-size: 0.82rem;
-    border-bottom: 1px solid #f4f4f4;
+    display: flex; align-items: center; padding: 4px 10px;
+    cursor: pointer; font-size: 0.82rem; border-bottom: 1px solid #f4f4f4;
     border-left: 3px solid transparent;
   }
   .log-step:hover { background: #e9ecef; }
   .log-step.selected { background: #cfe2ff; border-left-color: #0d6efd; }
   .log-step.active { background: #d1e7dd; border-left-color: #198754; }
   .log-step.completed { background: #f8f9fa; }
-  .step-dot {
-    margin-right: 6px;
-    font-size: 0.55rem;
-    flex-shrink: 0;
-    width: 12px;
-    text-align: center;
-  }
+  .step-dot { margin-right: 6px; font-size: 0.55rem; flex-shrink: 0; width: 12px; text-align: center; }
   .log-step.active .step-dot { color: #198754; }
   .log-step.completed .step-dot { color: #0d6efd; }
-  .log-step-title {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    flex: 1;
-  }
+  .log-step-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 </style>

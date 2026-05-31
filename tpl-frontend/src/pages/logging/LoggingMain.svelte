@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { p, route } from "../../router";
-  import { execState, load, init, saveDoc, startRun, completeRun, updateRun, computeEntryStatus, adhocEntry } from "../../stores/execution";
+  import { execState, load, init, saveDoc, startRun, completeRun, updateRun, computeEntryStatus } from "../../stores/execution";
   import { executionApi, planApi } from "../../lib/api";
   import { findNode, generateId } from "../../lib/plan-utils";
   import type { ExecutionEntry, ExecutionRun } from "../../types/execution";
@@ -16,7 +16,21 @@
   let showAdhoc = $state(false);
   let adhocTitle = $state("");
   let adhocNotes = $state("");
+  let adhocInputs = $state<string[]>([]);
+  let adhocMeasurements = $state<string[]>([]);
+  let adhocCriteria = $state<string[]>([]);
+  let adhocInputValues = $state<Record<string, string>>({});
   let conflictModal = $state<{ stepId: string; activeEntry: ExecutionEntry | null } | null>(null);
+
+  function resetAdhoc() {
+    adhocTitle = "";
+    adhocNotes = "";
+    adhocInputs = [];
+    adhocMeasurements = [];
+    adhocCriteria = [];
+    adhocInputValues = {};
+    showAdhoc = false;
+  }
 
   onMount(() => { load(id, executionApi.getDoc, planApi.getDocument); });
 
@@ -42,6 +56,31 @@
   const selEntry = $derived(selectedEntry());
   const selStep = $derived(selEntry?.plan_step_id && plan ? findNode(plan.root, selEntry.plan_step_id) : null);
 
+  // For ad-hoc entries: build synthetic field bindings from selected definitions
+  const adhocBindings = $derived((selEntry?.type === "adhoc" && plan && selEntry.selected_bindings) ? {
+    input_conditions: (selEntry.selected_bindings.input_conditions || []).map(id => 
+      plan.definitions.input_conditions.find(d => d.id === id) || { id, name: "", field_type: "text", unit: null, default_value: null, options: null }
+    ).map(d => ({ definition_id: d.id, value: null, operator: null, target_value: null })),
+    collection_items: (selEntry.selected_bindings.collection_items || []).map(id =>
+      plan.definitions.collection_items.find(d => d.id === id) || { id, name: "", field_type: "text", unit: null, default_value: null, options: null }
+    ).map(d => ({ definition_id: d.id, value: null, operator: null, target_value: null })),
+    completion_criteria: (selEntry.selected_bindings.completion_criteria || []).map(id =>
+      plan.definitions.completion_criteria.find(d => d.id === id) || { id, name: "", field_type: "text", unit: null, default_value: null, options: null }
+    ).map(d => ({ definition_id: d.id, value: null, operator: null, target_value: null })),
+  } : null);
+
+  // Effective step data for the detail panel
+  const displayStep = $derived(selStep || (adhocBindings ? {
+    type: "step" as const,
+    title: selEntry?.step_title || "",
+    description: null as string | null,
+    duration_minutes: 0,
+    changeover_minutes: 0,
+    ...adhocBindings,
+    system_config: null,
+    required_executions: 1,
+  } as PlanNode : null));
+
   // --- Context menu ---
   function ctxMenu(e: MouseEvent, stepId: string) {
     e.preventDefault();
@@ -63,10 +102,23 @@
       conflictModal = { stepId, activeEntry: active };
       return;
     }
-    doStart(stepId);
+    doStartByStepId(stepId);
   }
 
-  async function doStart(stepId: string) {
+  async function doStart(entryId: string) {
+    if (!doc) return;
+    const entry = doc.entries.find(e => e.id === entryId);
+    if (!entry) return;
+
+    const updated = startRun(entry);
+    doc.entries = doc.entries.map(e => e.id === entry.id ? updated : e);
+    dirty();
+
+    selectedEntryId = entry.id;
+    await executionApi.saveDoc(id, doc);
+  }
+
+  async function doStartByStepId(stepId: string) {
     if (!doc) return;
     let entry = entryForStep(stepId);
     const step = plan ? findNode(plan.root, stepId) : null;
@@ -108,7 +160,7 @@
     }
     const stepId = conflictModal.stepId;
     conflictModal = null;
-    await doStart(stepId);
+    await doStartByStepId(stepId);
   }
 
   async function conflictSkipPrevious() {
@@ -127,7 +179,7 @@
     }
     const stepId = conflictModal.stepId;
     conflictModal = null;
-    await doStart(stepId);
+    await doStartByStepId(stepId);
   }
 
   function conflictCancel() {
@@ -136,20 +188,19 @@
 
   async function handleCompleteRun(runId: string) {
     if (!doc || !selEntry) return;
-    const step = plan && selEntry.plan_step_id ? findNode(plan.root, selEntry.plan_step_id) : null;
 
-    const input_readings = (step?.input_conditions || []).map(b => ({
+    const input_readings = (displayStep?.input_conditions || []).map(b => ({
       definition_id: b.definition_id,
       definition_name: defName(b.definition_id),
       value: b.value ?? null,
     }));
-    const collection_results = (step?.collection_items || []).map(b => ({
+    const collection_results = (displayStep?.collection_items || []).map(b => ({
       definition_id: b.definition_id,
       definition_name: defName(b.definition_id),
       result: b.value !== null && b.value !== undefined ? String(b.value) : null,
       notes: null as string | null,
     }));
-    const criteria_results = (step?.completion_criteria || []).map(b => ({
+    const criteria_results = (displayStep?.completion_criteria || []).map(b => ({
       definition_id: b.definition_id,
       definition_name: defName(b.definition_id),
       passed: b.value === true ? true : (b.value === false ? false : null),
@@ -174,14 +225,45 @@
     return entry.executions.find(r => r.status === "in_progress");
   }
 
+  function adhocNode(ae: ExecutionEntry): PlanNode {
+    return {
+      id: ae.id, type: "step", title: ae.step_title, children: [],
+      description: null, duration_minutes: 0, changeover_minutes: 0,
+      input_conditions: [], collection_items: [], completion_criteria: [],
+      system_config: null, required_executions: 1,
+      step_template_id: null, solution_step_id: null,
+    };
+  }
+
   // --- Ad-hoc ---
   async function handleAdhoc() {
     if (!doc || !adhocTitle) return;
-    const entry = adhocEntry(adhocTitle, adhocNotes || null);
+
+    const input_readings = adhocInputs.map(defId => ({
+      definition_id: defId,
+      definition_name: defName(defId),
+      value: adhocInputValues[defId] ?? null,
+    }));
+
+    const now = new Date().toISOString();
+    const entry: ExecutionEntry = {
+      id: generateId(),
+      plan_step_id: null,
+      step_title: adhocTitle,
+      type: "adhoc",
+      required_executions: 1,
+      executions: [],
+      selected_bindings: {
+        input_conditions: adhocInputs,
+        collection_items: adhocMeasurements,
+        completion_criteria: adhocCriteria,
+      },
+    };
+
     doc.entries = [...doc.entries, entry];
     dirty();
     await executionApi.saveDoc(id, doc);
-    adhocTitle = ""; adhocNotes = ""; showAdhoc = false;
+    resetAdhoc();
   }
 
   // --- Init ---
@@ -262,40 +344,53 @@
           />
         {/each}
 
-        {#each (doc?.entries || []).filter(e => e.type === "adhoc") as ae (ae.id)}
-          <div class="log-step adhoc" class:selected={ae.id === selectedEntryId} onclick={() => selectedEntryId = ae.id}>
-            <span class="log-step-title">{ae.step_title}</span>
-            <span class="flex-grow-1"></span>
-            <span class="badge bg-info me-1">Ad-hoc</span>
+        {#if (doc?.entries || []).some(e => e.type === "adhoc")}
+          <div class="log-group-header" style="padding-left: 8px">
+            <span class="group-toggle">&#x25BE;</span>
+            <span class="group-title" style="color:#6f42c1">AD-HOC</span>
           </div>
-        {/each}
+          {#each (doc?.entries || []).filter(e => e.type === "adhoc") as ae (ae.id)}
+            <LogStepTree
+              node={adhocNode(ae)}
+              plan={plan}
+              doc={doc}
+              {selectedEntryId}
+              ctxMenu={() => {}}
+              entryForStep={(sid: string) => doc?.entries.find(e => e.id === sid && e.type === "adhoc")}
+              selectEntry={(eid: string | null) => selectedEntryId = eid}
+              activeRun={activeRun}
+              {statusClass}
+              {statusLabel}
+            />
+          {/each}
+        {/if}
       </div>
 
       <!-- Right: Detail Panel -->
       <div class="log-right">
-        {#if selEntry && selStep}
+        {#if selEntry && displayStep}
           {@const run = activeRun(selEntry)}
           <div class="log-detail">
             <!-- Header -->
             <div class="log-detail-header">
               <div class="d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">{selStep.title}</h5>
+                <h5 class="mb-0">{displayStep.title}{#if selEntry.type === "adhoc"} <small class="text-muted">(ad-hoc)</small>{/if}</h5>
                 <div class="d-flex align-items-center gap-2">
                   {#if run}
                     <span class="badge bg-success">Running</span>
                   {:else if computeEntryStatus(selEntry) === "completed"}
                     <span class="badge bg-primary">Completed</span>
-                    <button class="btn btn-sm btn-outline-success" onclick={() => handleStart(selEntry.plan_step_id!)}>Run Again</button>
+                    <button class="btn btn-sm btn-outline-success" onclick={() => selEntry.plan_step_id ? handleStart(selEntry.plan_step_id) : doStart(selEntry.id)}>Run Again</button>
                   {:else if computeEntryStatus(selEntry) === "partial"}
                     <span class="badge bg-info">{selEntry.executions.filter(r => r.status==="completed").length}/{selEntry.required_executions}</span>
-                    <button class="btn btn-sm btn-outline-success" onclick={() => handleStart(selEntry.plan_step_id!)}>Run Again</button>
+                    <button class="btn btn-sm btn-outline-success" onclick={() => selEntry.plan_step_id ? handleStart(selEntry.plan_step_id) : doStart(selEntry.id)}>Run Again</button>
                   {:else}
-                    <button class="btn btn-sm btn-success" onclick={() => handleStart(selEntry.plan_step_id!)}>Start</button>
+                    <button class="btn btn-sm btn-success" onclick={() => selEntry.plan_step_id ? handleStart(selEntry.plan_step_id) : doStart(selEntry.id)}>Start</button>
                   {/if}
                 </div>
               </div>
-              {#if selStep.description}
-                <small class="text-muted d-block mt-1">{selStep.description}</small>
+              {#if displayStep.description}
+                <small class="text-muted d-block mt-1">{displayStep.description}</small>
               {/if}
             </div>
 
@@ -312,11 +407,11 @@
               {/if}
 
               <!-- Inputs: read-only blocks -->
-              {#if selStep.input_conditions.length > 0}
+              {#if displayStep.input_conditions.length > 0}
                 <div class="mb-3">
                   <div class="binding-category">Input Conditions</div>
                   <div class="field-blocks">
-                    {#each selStep.input_conditions as b (b.definition_id)}
+                    {#each displayStep.input_conditions as b (b.definition_id)}
                       {@const d = defField(b.definition_id)}
                       <div class="field-block">
                         <div class="field-block-label">{d?.name || b.definition_id.slice(0,8)}</div>
@@ -329,11 +424,11 @@
               {/if}
 
               <!-- Measurements: interactive blocks -->
-              {#if selStep.collection_items.length > 0}
+              {#if displayStep.collection_items.length > 0}
                 <div class="mb-3">
                   <div class="binding-category">Measurements</div>
                   <div class="field-blocks">
-                    {#each selStep.collection_items as b (b.definition_id)}
+                    {#each displayStep.collection_items as b (b.definition_id)}
                       {@const d = defField(b.definition_id)}
                       <div class="field-block measurement">
                         <div class="field-block-label">{d?.name || b.definition_id.slice(0,8)}</div>
@@ -356,11 +451,11 @@
               {/if}
 
               <!-- Criteria: interactive blocks -->
-              {#if selStep.completion_criteria.length > 0}
+              {#if displayStep.completion_criteria.length > 0}
                 <div class="mb-3">
                   <div class="binding-category">Completion Criteria</div>
                   <div class="field-blocks">
-                    {#each selStep.completion_criteria as b (b.definition_id)}
+                    {#each displayStep.completion_criteria as b (b.definition_id)}
                       {@const d = defField(b.definition_id)}
                       <div class="field-block criteria" class:passed={b.value === true} class:failed={b.value === false}>
                         <div class="field-block-label">{d?.name || b.definition_id.slice(0,8)}</div>
@@ -400,21 +495,6 @@
               {/if}
             </div>
           </div>
-        {:else if selEntry && selEntry.type === "adhoc"}
-          <div class="log-detail">
-            <div class="log-detail-header">
-              <h5 class="mb-0">{selEntry.step_title}</h5>
-              <span class="badge bg-info">Ad-hoc</span>
-            </div>
-            <div class="log-detail-body">
-              {#each selEntry.executions as r (r.id)}
-                <div class="run-record">
-                  <small>{formatTime(r.started_at)}</small>
-                  {#if r.notes}<p class="mt-1">{r.notes}</p>{/if}
-                </div>
-              {/each}
-            </div>
-          </div>
         {:else if plan}
           <div class="p-4 text-center text-muted">
             <div style="font-size:2rem;opacity:0.3">&#x2699;</div>
@@ -434,14 +514,98 @@
 
   {#if showAdhoc}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="modal-backdrop" onclick={() => (showAdhoc = false)}></div>
-    <div class="modal d-block" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
-      <div class="modal-header"><h5 class="modal-title">Ad-hoc Entry</h5><button class="btn-close" onclick={() => (showAdhoc = false)}></button></div>
-      <div class="modal-body">
-        <div class="mb-2"><input class="form-control form-control-sm" placeholder="Title" bind:value={adhocTitle} /></div>
-        <div class="mb-2"><textarea class="form-control form-control-sm" rows="3" placeholder="Notes" bind:value={adhocNotes}></textarea></div>
+    <div class="modal-backdrop" onclick={resetAdhoc}></div>
+    <div class="modal d-block" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Ad-hoc Entry</h5><button class="btn-close" onclick={resetAdhoc}></button></div>
+      <div class="modal-body" style="max-height:70vh;overflow-y:auto">
+        <div class="mb-3"><label class="form-label small fw-bold">Title</label><input class="form-control form-control-sm" placeholder="Title" bind:value={adhocTitle} /></div>
+
+        {#if plan}
+          <!-- Input Conditions -->
+          {#if plan.definitions.input_conditions.length > 0}
+            <div class="mb-3">
+              <div class="binding-category mb-1">Input Conditions</div>
+              {#each plan.definitions.input_conditions as f (f.id)}
+                <div class="adhoc-field">
+                  <label class="adhoc-check">
+                    <input type="checkbox" checked={adhocInputs.includes(f.id)} onchange={(e) => {
+                      const checked = (e.target as HTMLInputElement).checked;
+                      adhocInputs = checked ? [...adhocInputs, f.id] : adhocInputs.filter(x => x !== f.id);
+                      if (!checked) { delete adhocInputValues[f.id]; adhocInputValues = Object.fromEntries(Object.entries(adhocInputValues)); }
+                    }} />
+                    <span>{f.name}{#if f.unit} <small class="text-muted">({f.unit})</small>{/if}</span>
+                  </label>
+                  {#if adhocInputs.includes(f.id)}
+                    {#if f.field_type === "select" && f.options?.length}
+                      <select class="form-select form-select-sm mt-1" value={adhocInputValues[f.id] ?? ""} onchange={(e) => {
+                        adhocInputValues[f.id] = (e.target as HTMLSelectElement).value;
+                        adhocInputValues = { ...adhocInputValues };
+                      }}>
+                        <option value="">--</option>
+                        {#each f.options as opt}<option value={opt}>{opt}</option>{/each}
+                      </select>
+                    {:else}
+                      <input
+                        type={f.field_type === "number" ? "number" : "text"}
+                        class="form-control form-control-sm mt-1"
+                        placeholder="Value"
+                        value={adhocInputValues[f.id] ?? ""}
+                        oninput={(e) => {
+                          adhocInputValues[f.id] = (e.target as HTMLInputElement).value;
+                          adhocInputValues = { ...adhocInputValues };
+                        }}
+                      />
+                    {/if}
+                  {/if}
+                </div>
+              {/each}
+            </div>
+          {/if}
+
+          <!-- Measurement Items -->
+          {#if plan.definitions.collection_items.length > 0}
+            <div class="mb-3">
+              <div class="binding-category mb-1">Measurement Items</div>
+              {#each plan.definitions.collection_items as f (f.id)}
+                <div class="adhoc-field">
+                  <label class="adhoc-check">
+                    <input type="checkbox" checked={adhocMeasurements.includes(f.id)} onchange={(e) => {
+                      const checked = (e.target as HTMLInputElement).checked;
+                      adhocMeasurements = checked ? [...adhocMeasurements, f.id] : adhocMeasurements.filter(x => x !== f.id);
+                    }} />
+                    <span>{f.name}{#if f.unit} <small class="text-muted">({f.unit})</small>{/if}</span>
+                  </label>
+                </div>
+              {/each}
+            </div>
+          {/if}
+
+          <!-- Completion Criteria -->
+          {#if plan.definitions.completion_criteria.length > 0}
+            <div class="mb-3">
+              <div class="binding-category mb-1">Completion Criteria</div>
+              {#each plan.definitions.completion_criteria as f (f.id)}
+                <div class="adhoc-field">
+                  <label class="adhoc-check">
+                    <input type="checkbox" checked={adhocCriteria.includes(f.id)} onchange={(e) => {
+                      const checked = (e.target as HTMLInputElement).checked;
+                      adhocCriteria = checked ? [...adhocCriteria, f.id] : adhocCriteria.filter(x => x !== f.id);
+                    }} />
+                    <span>{f.name}{#if f.unit} <small class="text-muted">({f.unit})</small>{/if}</span>
+                  </label>
+                </div>
+              {/each}
+            </div>
+          {/if}
+
+          {#if plan.definitions.input_conditions.length === 0 && plan.definitions.collection_items.length === 0 && plan.definitions.completion_criteria.length === 0}
+            <p class="text-muted small">No definitions in plan. Add definitions in the Plan Editor first.</p>
+          {/if}
+        {/if}
+
+        <div class="mb-2"><label class="form-label small fw-bold">Notes</label><textarea class="form-control form-control-sm" rows="2" placeholder="Notes" bind:value={adhocNotes}></textarea></div>
       </div>
-      <div class="modal-footer"><button class="btn btn-secondary" onclick={() => (showAdhoc = false)}>Cancel</button><button class="btn btn-primary" onclick={handleAdhoc} disabled={!adhocTitle}>Save</button></div>
+      <div class="modal-footer"><button class="btn btn-secondary" onclick={resetAdhoc}>Cancel</button><button class="btn btn-primary" onclick={handleAdhoc} disabled={!adhocTitle}>Save</button></div>
     </div></div></div>
   {/if}
 
@@ -469,8 +633,13 @@
   .log-body { display: flex; flex: 1; overflow: hidden; }
   .log-left { width: 280px; min-width: 200px; border-right: 1px solid #dee2e6; overflow-y: auto; }
   .log-right { flex: 1; overflow-y: auto; background: #fafafa; }
-  .log-step.adhoc { border-left: 3px solid #0dcaf0; padding: 5px 10px; display: flex; align-items: center; cursor: pointer; font-size: 0.82rem; border-bottom: 1px solid #f4f4f4; }
-  .log-step.adhoc.selected { background: #cfe2ff; }
+  .log-group-header {
+    display: flex; align-items: center; padding: 5px 10px;
+    font-size: 0.8rem; font-weight: 600; color: #495057; background: #f0f1f2;
+    border-bottom: 1px solid #dee2e6; border-top: 1px solid #dee2e6; margin-top: 1px;
+  }
+  .group-toggle { margin-right: 6px; font-size: 0.65rem; color: #888; }
+  .group-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.5px; }
   .log-step-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
   .log-detail {}
   .log-detail-header { padding: 12px; border-bottom: 1px solid #dee2e6; background: #fff; }
@@ -492,4 +661,7 @@
   .flex-grow-1 { flex: 1; }
   .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.3); z-index: 1040; }
   .modal { z-index: 1050; }
+  .adhoc-field { padding: 4px 0; }
+  .adhoc-check { display: flex; align-items: center; gap: 6px; font-size: 0.82rem; cursor: pointer; margin: 0; }
+  .adhoc-check input[type="checkbox"] { margin: 0; }
 </style>
