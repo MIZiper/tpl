@@ -346,7 +346,6 @@
 
         {#if (doc?.entries || []).some(e => e.type === "adhoc")}
           <div class="log-group-header" style="padding-left: 8px">
-            <span class="group-toggle">&#x25BE;</span>
             <span class="group-title" style="color:#6f42c1">AD-HOC</span>
           </div>
           {#each (doc?.entries || []).filter(e => e.type === "adhoc") as ae (ae.id)}
@@ -638,7 +637,6 @@
     font-size: 0.8rem; font-weight: 600; color: #495057; background: #f0f1f2;
     border-bottom: 1px solid #dee2e6; border-top: 1px solid #dee2e6; margin-top: 1px;
   }
-  .group-toggle { margin-right: 6px; font-size: 0.65rem; color: #888; }
   .group-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.5px; }
   .log-step-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
   .log-detail {}

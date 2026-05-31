@@ -31,8 +31,7 @@
 </script>
 
 {#if node.type === "group"}
-  <div class="log-group-header" style="padding-left: {8 + depth * 12}px">
-    <span class="group-toggle">{depth > 0 ? "\u2514" : "\u25BE"}</span>
+  <div class="log-group-header" style="padding-left: {10 + depth * 16}px">
     <span class="group-title">{node.title}</span>
   </div>
   {#each node.children as child (child.id)}
@@ -64,7 +63,6 @@
     role="button"
     tabindex="0"
   >
-    <span class="step-dot">{run ? "\u25CF" : (entry && computeEntryStatus(entry) === "completed" ? "\u2713" : "\u25CB")}</span>
     <span class="log-step-title">{node.title}</span>
     <span class="flex-grow-1"></span>
     {#if entry && statusClass(entry)}
@@ -79,7 +77,6 @@
     font-size: 0.8rem; font-weight: 600; color: #495057; background: #f0f1f2;
     border-bottom: 1px solid #dee2e6; border-top: 1px solid #dee2e6; margin-top: 1px;
   }
-  .group-toggle { margin-right: 6px; font-size: 0.65rem; color: #888; }
   .group-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.5px; }
   .log-step {
     display: flex; align-items: center; padding: 4px 10px;
@@ -90,8 +87,5 @@
   .log-step.selected { background: #cfe2ff; border-left-color: #0d6efd; }
   .log-step.active { background: #d1e7dd; border-left-color: #198754; }
   .log-step.completed { background: #f8f9fa; }
-  .step-dot { margin-right: 6px; font-size: 0.55rem; flex-shrink: 0; width: 12px; text-align: center; }
-  .log-step.active .step-dot { color: #198754; }
-  .log-step.completed .step-dot { color: #0d6efd; }
   .log-step-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 </style>
