@@ -10,7 +10,7 @@
     selectedEntryId,
     ctxMenu,
     entryForStep,
-    selectEntry,
+    onStepClick,
     activeRun,
     statusClass,
     statusLabel,
@@ -22,7 +22,7 @@
     selectedEntryId: string | null;
     ctxMenu: (e: MouseEvent, stepId: string) => void;
     entryForStep: (stepId: string) => ExecutionEntry | undefined;
-    selectEntry: (eid: string | null) => void;
+    onStepClick: (stepId: string, entryId: string | null) => void;
     activeRun: (entry: ExecutionEntry) => ExecutionRun | undefined;
     statusClass: (entry: ExecutionEntry) => string;
     statusLabel: (entry: ExecutionEntry) => string;
@@ -42,7 +42,7 @@
       {selectedEntryId}
       {ctxMenu}
       {entryForStep}
-      {selectEntry}
+      {onStepClick}
       {activeRun}
       {statusClass}
       {statusLabel}
@@ -58,7 +58,7 @@
     class:selected={selectedEntryId === entry?.id}
     class:active={!!run}
     class:completed={entry && !run && computeEntryStatus(entry) === "completed"}
-    onclick={() => selectEntry(entry?.id || null)}
+    onclick={() => onStepClick(node.id, entry?.id || null)}
     oncontextmenu={(e) => { e.stopPropagation(); ctxMenu(e, node.id); }}
     role="button"
     tabindex="0"

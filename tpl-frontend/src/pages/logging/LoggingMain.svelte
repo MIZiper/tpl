@@ -55,6 +55,7 @@
 
   const selEntry = $derived(selectedEntry());
   const selStep = $derived(selEntry?.plan_step_id && plan ? findNode(plan.root, selEntry.plan_step_id) : null);
+  const pureStep = $derived(selectedStepId && plan ? findNode(plan.root, selectedStepId) : null);
 
   // For ad-hoc entries: build synthetic field bindings from selected definitions
   const adhocBindings = $derived((selEntry?.type === "adhoc" && plan && selEntry.selected_bindings) ? {
@@ -70,7 +71,7 @@
   } : null);
 
   // Effective step data for the detail panel
-  const displayStep = $derived(selStep || (adhocBindings ? {
+  const displayStep = $derived(selStep || pureStep || (adhocBindings ? {
     type: "step" as const,
     title: selEntry?.step_title || "",
     description: null as string | null,
@@ -337,7 +338,7 @@
             {selectedEntryId}
             {ctxMenu}
             entryForStep={entryForStep}
-            selectEntry={(eid: string | null) => selectedEntryId = eid}
+            onStepClick={(sid, eid) => { selectedStepId = sid; selectedEntryId = eid; }}
             activeRun={activeRun}
             {statusClass}
             {statusLabel}
@@ -356,7 +357,7 @@
               {selectedEntryId}
               ctxMenu={() => {}}
               entryForStep={(sid: string) => doc?.entries.find(e => e.id === sid && e.type === "adhoc")}
-              selectEntry={(eid: string | null) => selectedEntryId = eid}
+              onStepClick={(sid, eid) => { selectedStepId = sid; selectedEntryId = eid; }}
               activeRun={activeRun}
               {statusClass}
               {statusLabel}
@@ -367,24 +368,27 @@
 
       <!-- Right: Detail Panel -->
       <div class="log-right">
-        {#if selEntry && displayStep}
-          {@const run = activeRun(selEntry)}
+        {#if displayStep}
+          {@const run = selEntry ? activeRun(selEntry) : undefined}
           <div class="log-detail">
-            <!-- Header -->
             <div class="log-detail-header">
               <div class="d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">{displayStep.title}{#if selEntry.type === "adhoc"} <small class="text-muted">(ad-hoc)</small>{/if}</h5>
+                <h5 class="mb-0">{displayStep.title}{#if selEntry?.type === "adhoc"} <small class="text-muted">(ad-hoc)</small>{/if}</h5>
                 <div class="d-flex align-items-center gap-2">
-                  {#if run}
-                    <span class="badge bg-success">Running</span>
-                  {:else if computeEntryStatus(selEntry) === "completed"}
-                    <span class="badge bg-primary">Completed</span>
-                    <button class="btn btn-sm btn-outline-success" onclick={() => selEntry.plan_step_id ? handleStart(selEntry.plan_step_id) : doStart(selEntry.id)}>Run Again</button>
-                  {:else if computeEntryStatus(selEntry) === "partial"}
-                    <span class="badge bg-info">{selEntry.executions.filter(r => r.status==="completed").length}/{selEntry.required_executions}</span>
-                    <button class="btn btn-sm btn-outline-success" onclick={() => selEntry.plan_step_id ? handleStart(selEntry.plan_step_id) : doStart(selEntry.id)}>Run Again</button>
+                  {#if selEntry}
+                    {#if run}
+                      <span class="badge bg-success">Running</span>
+                    {:else if computeEntryStatus(selEntry) === "completed"}
+                      <span class="badge bg-primary">Completed</span>
+                      <button class="btn btn-sm btn-outline-success" onclick={() => selEntry.plan_step_id ? handleStart(selEntry.plan_step_id!) : doStart(selEntry.id)}>Run Again</button>
+                    {:else if computeEntryStatus(selEntry) === "partial"}
+                      <span class="badge bg-info">{selEntry.executions.filter(r => r.status==="completed").length}/{selEntry.required_executions}</span>
+                      <button class="btn btn-sm btn-outline-success" onclick={() => selEntry.plan_step_id ? handleStart(selEntry.plan_step_id!) : doStart(selEntry.id)}>Run Again</button>
+                    {:else}
+                      <button class="btn btn-sm btn-success" onclick={() => selEntry.plan_step_id ? handleStart(selEntry.plan_step_id!) : doStart(selEntry.id)}>Start</button>
+                    {/if}
                   {:else}
-                    <button class="btn btn-sm btn-success" onclick={() => selEntry.plan_step_id ? handleStart(selEntry.plan_step_id) : doStart(selEntry.id)}>Start</button>
+                    <button class="btn btn-sm btn-success" onclick={() => handleStart(displayStep.id)}>Start</button>
                   {/if}
                 </div>
               </div>
@@ -395,7 +399,7 @@
 
             <div class="log-detail-body">
               <!-- Active run info -->
-              {#if run}
+              {#if selEntry && run}
                 <div class="log-run-active mb-3">
                   <span class="badge bg-success">Run started {formatTime(run.started_at)}</span>
                   <div class="d-flex gap-2 mt-2">
@@ -478,7 +482,7 @@
               {/if}
 
               <!-- Run History -->
-              {#if selEntry.executions.length > 0}
+              {#if selEntry && selEntry.executions.length > 0}
                 <div class="mb-3">
                   <div class="binding-category">Run History ({selEntry.executions.length})</div>
                   {#each selEntry.executions as r (r.id)}
@@ -487,6 +491,38 @@
                         <span class="badge bg-{r.status === 'completed' ? 'success' : r.status === 'skipped' ? 'warning' : 'secondary'}">{r.status}</span>
                         <small>{formatTime(r.started_at)}{#if r.completed_at} → {formatTime(r.completed_at)}{/if}</small>
                       </div>
+                      {#if r.input_readings.length > 0 || r.collection_results.length > 0 || r.criteria_results.length > 0}
+                        <div class="run-mini-row">
+                          {#if r.input_readings.length > 0}
+                            <div class="run-mini-col">
+                              <div class="run-mini-label">Inputs</div>
+                              {#each r.input_readings as ir}
+                                <span class="run-mini-chip">{ir.definition_name}: {ir.value ?? "—"}</span>
+                              {/each}
+                            </div>
+                          {/if}
+                          {#if r.collection_results.length > 0}
+                            <div class="run-mini-col">
+                              <div class="run-mini-label">Measurements</div>
+                              {#each r.collection_results as cr}
+                                <span class="run-mini-chip" class:pass={cr.result === "pass"} class:fail={cr.result === "fail"}>
+                                  {cr.definition_name}: {cr.result ?? "—"}
+                                </span>
+                              {/each}
+                            </div>
+                          {/if}
+                          {#if r.criteria_results.length > 0}
+                            <div class="run-mini-col">
+                              <div class="run-mini-label">Criteria</div>
+                              {#each r.criteria_results as cr}
+                                <span class="run-mini-chip" class:pass={cr.passed === true} class:fail={cr.passed === false}>
+                                  {cr.definition_name}: {cr.passed === true ? "Pass" : cr.passed === false ? "Fail" : "—"}
+                                </span>
+                              {/each}
+                            </div>
+                          {/if}
+                        </div>
+                      {/if}
                       {#if r.notes}<small class="text-muted d-block mt-1">{r.notes}</small>{/if}
                     </div>
                   {/each}
@@ -653,6 +689,16 @@
   .field-block-label { font-size: 0.75rem; font-weight: 600; }
   .field-block-value { font-size: 0.85rem; margin-top: 4px; }
   .run-record { padding: 6px 8px; background: #fff; border: 1px solid #eee; border-radius: 4px; margin-bottom: 3px; font-size: 0.8rem; }
+  .run-mini-section { margin-top: 4px; }
+  .run-mini-row { display: flex; gap: 12px; margin-top: 4px; }
+  .run-mini-col { flex: 1; min-width: 0; }
+  .run-mini-label { font-size: 0.68rem; font-weight: 600; color: #888; text-transform: uppercase; margin-bottom: 2px; }
+  .run-mini-chip {
+    display: inline-block; padding: 1px 5px; margin: 1px 2px;
+    background: #f0f0f0; border-radius: 3px; font-size: 0.72rem;
+  }
+  .run-mini-chip.pass { background: #d1e7dd; color: #0f5132; }
+  .run-mini-chip.fail { background: #f8d7da; color: #842029; }
   .context-menu { background: #fff; border: 1px solid #dee2e6; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,.15); padding: 4px 0; min-width: 160px; z-index: 1000; }
   .context-item { display: block; width: 100%; text-align: left; padding: 6px 14px; border: none; background: none; font-size: 0.85rem; cursor: pointer; }
   .context-item:hover { background: #e9ecef; }
