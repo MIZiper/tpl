@@ -21,6 +21,42 @@
   let adhocCriteria = $state<string[]>([]);
   let adhocInputValues = $state<Record<string, string>>({});
   let conflictModal = $state<{ stepId: string; activeEntry: ExecutionEntry | null } | null>(null);
+  let tick = $state(0);
+
+  // Interactive state for active run
+  let measValues = $state<Record<string, string>>({});
+  let measFlags = $state<Record<string, "pass" | "fail" | null>>({});
+  let critFlags = $state<Record<string, boolean | null>>({});
+  let inputValues = $state<Record<string, string>>({});
+
+  function resetRunState() {
+    measValues = {}; measFlags = {}; critFlags = {}; inputValues = {};
+  }
+
+  $effect(() => {
+    const run = activeRunForAny();
+    if (!run?.started_at) return;
+    const started = new Date(run.started_at).getTime();
+    const update = () => { tick = Math.floor((Date.now() - started) / 1000); };
+    update();
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  });
+
+  function activeRunForAny(): ExecutionRun | undefined {
+    if (!doc) return undefined;
+    for (const e of doc.entries) {
+      const r = e.executions.find(r => r.status === "in_progress");
+      if (r) return r;
+    }
+    return undefined;
+  }
+
+  function formatElapsed(s: number): string {
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${m}:${sec.toString().padStart(2, "0")}`;
+  }
 
   function resetAdhoc() {
     adhocTitle = "";
@@ -193,23 +229,24 @@
     const input_readings = (displayStep?.input_conditions || []).map(b => ({
       definition_id: b.definition_id,
       definition_name: defName(b.definition_id),
-      value: b.value ?? null,
+      value: inputValues[b.definition_id] ?? b.value ?? null,
     }));
     const collection_results = (displayStep?.collection_items || []).map(b => ({
       definition_id: b.definition_id,
       definition_name: defName(b.definition_id),
-      result: b.value !== null && b.value !== undefined ? String(b.value) : null,
+      result: measFlags[b.definition_id] ?? measValues[b.definition_id] ?? String(b.value ?? null),
       notes: null as string | null,
     }));
     const criteria_results = (displayStep?.completion_criteria || []).map(b => ({
       definition_id: b.definition_id,
       definition_name: defName(b.definition_id),
-      passed: b.value === true ? true : (b.value === false ? false : null),
+      passed: critFlags[b.definition_id] ?? (b.value === true ? true : (b.value === false ? false : null)),
       notes: null as string | null,
     }));
 
     const updated = completeRun(selEntry, runId, { input_readings, collection_results, criteria_results });
     doc.entries = doc.entries.map(e => e.id === selEntry.id ? updated : e);
+    resetRunState();
     dirty();
     await executionApi.saveDoc(id, doc);
   }
@@ -401,10 +438,18 @@
               <!-- Active run info -->
               {#if selEntry && run}
                 <div class="log-run-active mb-3">
-                  <span class="badge bg-success">Run started {formatTime(run.started_at)}</span>
-                  <div class="d-flex gap-2 mt-2">
-                    <button class="btn btn-success btn-sm" onclick={() => handleCompleteRun(run.id)}>Complete</button>
-                    <button class="btn btn-outline-secondary btn-sm" onclick={() => handleSkipRun(run.id)}>Skip</button>
+                  <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                      <div class="d-flex align-items-center gap-2">
+                        <span class="badge bg-success">Running</span>
+                        <strong class="elapsed-timer">{formatElapsed(tick)}</strong>
+                      </div>
+                      <small class="text-muted">Started {formatTime(run.started_at)}</small>
+                    </div>
+                    <div class="d-flex gap-2 mt-1">
+                      <button class="btn btn-success btn-sm" onclick={() => handleCompleteRun(run.id)}>Complete</button>
+                      <button class="btn btn-outline-secondary btn-sm" onclick={() => handleSkipRun(run.id)}>Skip</button>
+                    </div>
                   </div>
                 </div>
               {/if}
@@ -433,19 +478,25 @@
                   <div class="field-blocks">
                     {#each displayStep.collection_items as b (b.definition_id)}
                       {@const d = defField(b.definition_id)}
+                      {@const saved = run?.collection_results.find(r => r.definition_id === b.definition_id)}
+                      {@const chosen = measFlags[b.definition_id]}
+                      {@const val = measValues[b.definition_id]}
                       <div class="field-block measurement">
                         <div class="field-block-label">{d?.name || b.definition_id.slice(0,8)}</div>
                         {#if d?.unit}<small class="text-muted">{d.unit}</small>{/if}
-                        {#if run && !run.collection_results.find(r => r.definition_id === b.definition_id)}
+                        {#if run && !saved}
                           <div class="mt-1">
                             {#if d?.field_type === "boolean" || d?.field_type === "pass_fail"}
-                              <div class="d-flex gap-1"><button class="btn btn-sm btn-outline-success" onclick={() => { b.value = "pass"; }}>Pass</button><button class="btn btn-sm btn-outline-danger" onclick={() => { b.value = "fail"; }}>Fail</button></div>
+                              <div class="d-flex gap-1">
+                                <button class="btn btn-sm {chosen === 'pass' ? 'btn-success' : 'btn-outline-success'}" onclick={() => measFlags = { ...measFlags, [b.definition_id]: 'pass' }}>Pass</button>
+                                <button class="btn btn-sm {chosen === 'fail' ? 'btn-danger' : 'btn-outline-danger'}" onclick={() => measFlags = { ...measFlags, [b.definition_id]: 'fail' }}>Fail</button>
+                              </div>
                             {:else}
-                              <input type={d?.field_type === "number" || d?.field_type === "measurement" ? "number" : "text"} class="form-control form-control-sm" placeholder="Value" oninput={(e) => { const raw = (e.target as HTMLInputElement).value; b.value = d?.field_type === "number" || d?.field_type === "measurement" ? (parseFloat(raw) || null) : raw; }} />
+                              <input type={d?.field_type === "number" || d?.field_type === "measurement" ? "number" : "text"} class="form-control form-control-sm" placeholder="Value" value={val ?? ""} oninput={(e) => measValues = { ...measValues, [b.definition_id]: (e.target as HTMLInputElement).value }} />
                             {/if}
                           </div>
                         {:else}
-                          <div class="field-block-value">{b.value ?? "—"}</div>
+                          <div class="field-block-value">{saved?.result ?? val ?? b.value ?? "—"}</div>
                         {/if}
                       </div>
                     {/each}
@@ -460,19 +511,29 @@
                   <div class="field-blocks">
                     {#each displayStep.completion_criteria as b (b.definition_id)}
                       {@const d = defField(b.definition_id)}
-                      <div class="field-block criteria" class:passed={b.value === true} class:failed={b.value === false}>
+                      {@const saved = run?.criteria_results.find(r => r.definition_id === b.definition_id)}
+                      {@const chosen = critFlags[b.definition_id]}
+                      <div class="field-block criteria" class:passed={chosen === true} class:failed={chosen === false}>
                         <div class="field-block-label">{d?.name || b.definition_id.slice(0,8)}</div>
                         {#if d?.field_type === "threshold"}
                           <small class="text-muted">{b.operator} {b.target_value}{d?.unit ? ` ${d.unit}` : ""}</small>
                         {/if}
-                        {#if run && !run.criteria_results.find(r => r.definition_id === b.definition_id)}
+                        {#if run && !saved}
                           <div class="mt-1 d-flex gap-1">
-                            <button class="btn btn-sm btn-outline-success" onclick={() => { b.value = true; }}>Pass</button>
-                            <button class="btn btn-sm btn-outline-danger" onclick={() => { b.value = false; }}>Fail</button>
+                            <button class="btn btn-sm {chosen === true ? 'btn-success' : 'btn-outline-success'}" onclick={() => critFlags = { ...critFlags, [b.definition_id]: true }}>Pass</button>
+                            <button class="btn btn-sm {chosen === false ? 'btn-danger' : 'btn-outline-danger'}" onclick={() => critFlags = { ...critFlags, [b.definition_id]: false }}>Fail</button>
                           </div>
                         {:else}
                           <div class="field-block-value">
-                            {#if b.value === true}<span class="text-success">Pass</span>{:else if b.value === false}<span class="text-danger">Fail</span>{:else}—{/if}
+                            {#if saved}
+                              <span class="{saved.passed ? 'text-success' : 'text-danger'}">{saved.passed ? 'Pass' : 'Fail'}</span>
+                            {:else if chosen === true}
+                              <span class="text-success">Pass</span>
+                            {:else if chosen === false}
+                              <span class="text-danger">Fail</span>
+                            {:else}
+                              —
+                            {/if}
                           </div>
                         {/if}
                       </div>
@@ -679,6 +740,7 @@
   .log-detail-header { padding: 12px; border-bottom: 1px solid #dee2e6; background: #fff; }
   .log-detail-body { padding: 12px; }
   .log-run-active { padding: 8px; background: #d1e7dd; border-radius: 6px; }
+  .elapsed-timer { font-size: 1.3rem; font-variant-numeric: tabular-nums; color: #0f5132; }
   .binding-category { font-size: 0.72rem; font-weight: 600; color: #666; text-transform: uppercase; margin-bottom: 6px; padding-bottom: 2px; border-bottom: 1px solid #eee; }
   .field-blocks { display: flex; flex-wrap: wrap; gap: 6px; }
   .field-block { padding: 8px 10px; background: #fff; border: 1px solid #dee2e6; border-radius: 6px; min-width: 100px; flex: 1; }
