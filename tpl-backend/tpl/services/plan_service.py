@@ -144,7 +144,13 @@ async def initialize_plan(db: Connection, project_id: str) -> PlanDocument:
             root.append(group_node)
 
     from uuid import uuid4 as _uuid4
-    return PlanDocument(definitions=defs, root=root)
+    doc = PlanDocument(definitions=defs, root=root)
+    await db.execute(
+        "UPDATE projects SET plan_document = $1, updated_at = NOW() WHERE id = $2",
+        json.dumps(doc.model_dump()),
+        project_id,
+    )
+    return doc
 
 
 def _ensure_def(defs: PlanDefinitions, category: str, item: dict) -> str:

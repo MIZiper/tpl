@@ -13,8 +13,10 @@ from tpl.models import (
     LinkRiskRequest,
     PlanDocument,
     PlanDocumentUpdate,
+    ExecutionDoc,
+    ExecutionDocUpdate,
 )
-from tpl.services import project_service, plan_service
+from tpl.services import project_service, plan_service, execution_service
 
 router = APIRouter(tags=["projects"])
 
@@ -115,3 +117,24 @@ async def save_plan_document(project_id: str, body: PlanDocumentUpdate, db: Conn
 @router.post("/projects/{project_id}/plan/initialize", response_model=PlanDocument)
 async def initialize_plan(project_id: str, db: Connection = Depends(get_connection)):
     return await plan_service.initialize_plan(db, project_id)
+
+
+@router.get("/projects/{project_id}/execution-document", response_model=ExecutionDoc)
+async def get_execution_doc(project_id: str, db: Connection = Depends(get_connection)):
+    return await execution_service.get_execution_doc(db, project_id)
+
+
+@router.put("/projects/{project_id}/execution-document", status_code=204)
+async def save_execution_doc(project_id: str, body: ExecutionDocUpdate, db: Connection = Depends(get_connection)):
+    await execution_service.save_execution_doc(db, project_id, body.document)
+    return None
+
+
+@router.post("/projects/{project_id}/execution-document/initialize", response_model=ExecutionDoc)
+async def init_execution_doc(project_id: str, db: Connection = Depends(get_connection)):
+    return await execution_service.init_execution_doc(db, project_id)
+
+
+@router.post("/projects/{project_id}/execution-document/adhoc", response_model=ExecutionDoc)
+async def add_adhoc(project_id: str, body: dict = {}, db: Connection = Depends(get_connection)):
+    return await execution_service.add_adhoc_entry(db, project_id, body.get("title", ""), body.get("notes"))

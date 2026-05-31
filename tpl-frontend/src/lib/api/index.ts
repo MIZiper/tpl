@@ -13,6 +13,7 @@ import type {
   SyncPayload,
 } from "../../types";
 import type { PlanDocument } from "../../types/plan";
+import type { ExecutionDoc, ExecutionEntry } from "../../types/execution";
 
 export const risksApi = {
   list: (search?: string) =>
@@ -131,4 +132,14 @@ export const syncApi = {
   exportProject: (projectId: string) => api.get(`/api/export/projects/${projectId}`),
   exportRisk: (riskId: string) => api.get(`/api/export/risks/${riskId}`),
   exportSolution: (solutionId: string) => api.get(`/api/export/solutions/${solutionId}`),
+};
+
+export const executionApi = {
+  getDoc: (projectId: string) => api.get<ExecutionDoc>(`/api/projects/${projectId}/execution-document`),
+  saveDoc: (projectId: string, document: ExecutionDoc) =>
+    api.put<void>(`/api/projects/${projectId}/execution-document`, { document }),
+  initialize: (projectId: string) =>
+    api.post<ExecutionDoc>(`/api/projects/${projectId}/execution-document/initialize`),
+  adhoc: (projectId: string, title: string, notes?: string) =>
+    api.post<ExecutionDoc>(`/api/projects/${projectId}/execution-document/adhoc`, { title, notes }),
 };

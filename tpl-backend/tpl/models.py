@@ -364,3 +364,54 @@ class PlanDocument(BaseModel):
 
 class PlanDocumentUpdate(BaseModel):
     document: PlanDocument
+
+
+class ExecutionReading(BaseModel):
+    definition_id: str
+    definition_name: str = ""
+    value: Any | None = None
+
+
+class ExecutionResult(BaseModel):
+    definition_id: str
+    definition_name: str = ""
+    result: str | None = None
+    notes: str | None = None
+
+
+class ExecutionCriteriaResult(BaseModel):
+    definition_id: str
+    definition_name: str = ""
+    passed: bool | None = None
+    notes: str | None = None
+
+
+class ExecutionRun(BaseModel):
+    id: str
+    status: str = "pending"
+    started_at: str | None = None
+    completed_at: str | None = None
+    input_readings: list[ExecutionReading] = Field(default_factory=list)
+    collection_results: list[ExecutionResult] = Field(default_factory=list)
+    criteria_results: list[ExecutionCriteriaResult] = Field(default_factory=list)
+    notes: str | None = None
+
+
+class ExecutionEntry(BaseModel):
+    id: str
+    plan_step_id: str | None = None
+    step_title: str = ""
+    type: str = "planned"
+    required_executions: int = 1
+    executions: list[ExecutionRun] = Field(default_factory=list)
+
+
+class ExecutionDoc(BaseModel):
+    version: int = 1
+    status: str = "idle"
+    entries: list[ExecutionEntry] = Field(default_factory=list)
+    pause_history: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ExecutionDocUpdate(BaseModel):
+    document: ExecutionDoc

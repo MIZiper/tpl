@@ -108,6 +108,53 @@ PlanTemplate: { id, name, step: PlanNode }
 
 **Old plan tables** (`plan_groups`, `plan_steps`) are deprecated but kept for backward compatibility.
 
+### Execution Document JSON Model (NEW)
+
+Execution logs are stored as a single `execution_document JSONB` on the `projects` table. The schema:
+
+```
+ExecutionDoc
+  ├── version: int (1)
+  ├── status: "idle" | "in_progress" | "paused" | "completed"
+  ├── entries: ExecutionEntry[]
+  │     ├── id, plan_step_id, step_title, type (planned|adhoc)
+  │     ├── status (pending|in_progress|completed|skipped)
+  │     ├── started_at, completed_at
+  │     ├── input_readings: ExecutionReading[]
+  │     ├── collection_results: ExecutionResult[]
+  │     ├── criteria_results: ExecutionCriteriaResult[]
+  │     ├── notes, required_executions, execution_number
+  └── pause_history: [{ paused_at, resumed_at?, reason? }]
+
+ExecutionReading: { definition_id, definition_name, value?, collected_at? }
+ExecutionResult: { definition_id, definition_name, result?, notes? }
+ExecutionCriteriaResult: { definition_id, definition_name, passed?, notes? }
+```
+
+**Endpoints**:
+- `GET /projects/{id}/execution-document` — load execution JSON
+- `PUT /projects/{id}/execution-document` — save execution JSON
+- `POST /projects/{id}/execution-document/initialize` — build entries from plan
+- `POST /projects/{id}/execution-document/start/{entry_id}` — start an entry
+- `POST /projects/{id}/execution-document/complete/{entry_id}` — complete with readings/results/criteria
+- `POST /projects/{id}/execution-document/skip/{entry_id}` — skip entry
+- `POST /projects/{id}/execution-document/pause` — pause execution (with optional reason)
+- `POST /projects/{id}/execution-document/resume` — resume execution
+- `POST /projects/{id}/execution-document/adhoc` — add ad-hoc entry
+
+**Logging UI** (two-panel layout):
+- Left (280px): step list with status badges (pending/active/done/skipped)
+- Right: detail panel showing plan-defined input conditions, measurement items, and completion criteria
+- Active step shows fillable inputs and Pass/Fail/Skip actions
+- Pause/Resume and Ad-hoc entry support
+
+**Key files**:
+- `tpl-frontend/src/types/execution.ts` — TypeScript types
+- `tpl-frontend/src/stores/execution.ts` — writable store
+- `tpl-frontend/src/pages/logging/LoggingMain.svelte` — interactive logging UI
+- `tpl-backend/tpl/services/execution_service.py` — get/save/init/start/complete/skip/pause/adhoc
+- `tpl-backend/tpl/routers/projects.py` — execution-document endpoints
+
 ---
 
 ## API Endpoints (40+)

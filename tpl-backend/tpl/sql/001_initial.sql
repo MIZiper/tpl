@@ -45,6 +45,7 @@ CREATE TABLE projects (
     name VARCHAR(255) NOT NULL,
     description TEXT,
     plan_document JSONB,
+    execution_document JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
