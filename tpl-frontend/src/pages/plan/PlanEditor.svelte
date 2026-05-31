@@ -35,7 +35,7 @@
   let showInitModal = $state(false);
   let showDefForm = $state(false);
   let defCategory: keyof PlanDefinitions = $state<keyof PlanDefinitions>("input_conditions");
-  let newDef = $state({ name: "", field_type: "text", unit: null as string | null, default_value: null as any });
+  let newDef = $state({ name: "", field_type: "text", unit: null as string | null, default_value: null as any, optionsText: "" });
   let newTemplateName = $state("");
 
   onMount(() => { loadDoc(id, planApi.getDocument); });
@@ -72,8 +72,13 @@
 
   function addNewDef() {
     if (!newDef.name) return;
-    addDef(defCategory, { name: newDef.name, field_type: newDef.field_type, unit: newDef.unit, default_value: newDef.default_value });
-    newDef = { name: "", field_type: "text", unit: null, default_value: null }; showDefForm = false;
+    const isSelect = newDef.field_type === "select";
+    const options = isSelect && newDef.optionsText.trim()
+      ? newDef.optionsText.split(/[\n,]/).map(s => s.trim()).filter(Boolean)
+      : null;
+    addDef(defCategory, { name: newDef.name, field_type: newDef.field_type, unit: newDef.unit, default_value: newDef.default_value, options });
+    newDef = { name: "", field_type: "text", unit: null, default_value: null, optionsText: "" };
+    showDefForm = false;
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -84,7 +89,7 @@
   }
 
   function catLab(c: keyof PlanDefinitions) { return { input_conditions: "Input Conditions", collection_items: "Measurement Items", completion_criteria: "Completion Criteria", custom: "Custom" }[c]; }
-  function tLab(t: string) { return { text: "Text", number: "Number", boolean: "Boolean", pass_fail: "Pass/Fail", threshold: "Threshold", measurement: "Measurement" }[t] || t; }
+  function tLab(t: string) { return { text: "Text", number: "Number", boolean: "Boolean", pass_fail: "Pass/Fail", threshold: "Threshold", measurement: "Measurement", select: "Select" }[t] || t; }
   function hasC(d: PlanDocument | null) { return !!(d && (d.root.length > 0 || d.definitions.input_conditions.length > 0 || d.templates.length > 0)); }
 </script>
 
@@ -153,7 +158,7 @@
                 <div class="mb-2">
                   <div class="d-flex justify-content-between align-items-center mb-1"><small class="fw-bold text-muted">{catLab(cat)}</small><button class="btn btn-sm btn-link" onclick={() => { defCategory = cat; showDefForm = true; }}>+</button></div>
                   {#each doc.definitions[cat] as f (f.id)}
-                    <div class="def-item"><span class="me-1">{f.name}</span><small class="text-muted">({tLab(f.field_type)}{f.unit ? `, ${f.unit}` : ""})</small><button class="btn btn-sm btn-close-sm" onclick={() => removeDef(cat, f.id)}>&times;</button></div>
+                    <div class="def-item"><span class="me-1">{f.name}</span><small class="text-muted">({tLab(f.field_type)}{f.unit ? `, ${f.unit}` : ""}{f.options?.length ? `, ${f.options.length}opts` : ""})</small><button class="btn btn-sm btn-close-sm" onclick={() => removeDef(cat, f.id)}>&times;</button></div>
                   {/each}
                   {#if doc.definitions[cat].length === 0}<div class="text-muted" style="font-size:0.8rem">None</div>{/if}
                 </div>
@@ -161,8 +166,11 @@
               {#if showDefForm}
                 <div class="card card-body mb-2 bg-light">
                   <div class="mb-2"><input class="form-control form-control-sm" placeholder="Name" bind:value={newDef.name} /></div>
-                  <div class="mb-2"><select class="form-select form-select-sm" bind:value={newDef.field_type}><option value="text">Text</option><option value="number">Number</option><option value="boolean">Boolean</option><option value="pass_fail">Pass/Fail</option><option value="threshold">Threshold</option><option value="measurement">Measurement</option></select></div>
+                  <div class="mb-2"><select class="form-select form-select-sm" bind:value={newDef.field_type}><option value="text">Text</option><option value="number">Number</option><option value="boolean">Boolean</option><option value="pass_fail">Pass/Fail</option><option value="threshold">Threshold</option><option value="measurement">Measurement</option><option value="select">Select</option></select></div>
                   <div class="mb-2"><input class="form-control form-control-sm" placeholder="Unit" bind:value={newDef.unit} /></div>
+                  {#if newDef.field_type === "select"}
+                    <div class="mb-2"><textarea class="form-control form-control-sm" rows="2" placeholder="Options (one per line or comma-separated)" bind:value={newDef.optionsText}></textarea></div>
+                  {/if}
                   <div><button class="btn btn-sm btn-primary me-1" onclick={addNewDef}>Add</button><button class="btn btn-sm btn-secondary" onclick={() => (showDefForm = false)}>Cancel</button></div>
                 </div>
               {/if}

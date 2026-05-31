@@ -315,6 +315,7 @@ class PlanFieldDef(BaseModel):
     field_type: str
     unit: str | None = None
     default_value: Any | None = None
+    options: list[str] | None = None
 
 
 class PlanDefinitions(BaseModel):

@@ -4,6 +4,7 @@ export interface PlanFieldDef {
   field_type: string;
   unit: string | null;
   default_value: unknown;
+  options: string[] | null;
 }
 
 export interface PlanDefinitions {

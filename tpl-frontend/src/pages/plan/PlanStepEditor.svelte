@@ -167,6 +167,13 @@
                           <option value="true">Pass / True</option>
                           <option value="false">Fail / False</option>
                         </select>
+                      {:else if f.field_type === "select" && f.options}
+                        <select class="form-select form-select-sm" value={String(binding.value ?? "")} onchange={(e) => updateBinding(cat, f.id, { value: (e.target as HTMLSelectElement).value || null })}>
+                          <option value="">--</option>
+                          {#each f.options as opt}
+                            <option value={opt}>{opt}</option>
+                          {/each}
+                        </select>
                       {:else if f.field_type === "threshold"}
                         <div class="input-group input-group-sm">
                           <select class="form-select form-select-sm flex-shrink-1" value={binding.operator ?? "<="} onchange={(e) => updateBinding(cat, f.id, { operator: (e.target as HTMLSelectElement).value })} style="width:60px">
