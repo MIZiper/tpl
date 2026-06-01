@@ -5,25 +5,40 @@
     nodes,
     selectedNodeId = null,
     definitions = null,
+    parentId = null,
     onContextMenu = (_e: MouseEvent, _nodeId: string | null, _parentId: string | null, _index: number) => {},
     onselect = (_id: string) => {},
   }: {
     nodes: PlanNode[];
     selectedNodeId: string | null;
     definitions: PlanDefinitions | null;
+    parentId: string | null;
     onContextMenu: (e: MouseEvent, nodeId: string | null, parentId: string | null, index: number) => void;
     onselect: (id: string) => void;
   } = $props();
+
+  let wrapper: HTMLDivElement | undefined = $state();
+
+  $effect(() => {
+    const sel = selectedNodeId;
+    if (!sel || !wrapper) return;
+    const el = wrapper.querySelector(`[data-node-id="${sel}"]`);
+    if (el) {
+      el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  });
 </script>
 
+<div bind:this={wrapper}>
 {#each nodes as node, idx (node.id)}
   <div class="canvas-node-wrapper">
     {#if node.type === "group"}
       <div
         class="canvas-group"
         class:selected={selectedNodeId === node.id}
+        data-node-id={node.id}
         onclick={() => onselect(node.id)}
-        oncontextmenu={(e) => { e.stopPropagation(); onContextMenu(e, node.id, null, idx); }}
+        oncontextmenu={(e) => { e.stopPropagation(); onContextMenu(e, node.id, parentId, idx); }}
         role="button"
         tabindex="0"
       >
@@ -40,49 +55,50 @@
       {#if node.children.length > 0}
         <div class="canvas-group-body">
           {#each node.children as child, cidx (child.id)}
-            <div
-              class="canvas-step"
-              class:selected={selectedNodeId === child.id}
-              class:is-group={child.type === "group"}
-              onclick={() => onselect(child.id)}
-              oncontextmenu={(e) => { e.stopPropagation(); onContextMenu(e, child.id, node.id, cidx); }}
-              role="button"
-              tabindex="0"
-            >
-              <div class="canvas-step-row">
-                <span class="canvas-step-icon">{child.type === "group" ? "\u25A0" : "\u25CF"}</span>
-                <span class="canvas-node-title">{child.title}</span>
-                <span class="flex-grow-1"></span>
-                {#if child.type === "step"}
-                  <span class="canvas-badge duration-badge" title="Duration">{child.duration_minutes} min</span>
-                  {#if child.changeover_minutes > 0}
-                    <span class="canvas-badge change-badge" title="Changeover">+{child.changeover_minutes}</span>
-                  {/if}
-                  {#if child.required_executions > 1}
-                    <span class="canvas-badge execs-badge" title="Executions">x{child.required_executions}</span>
-                  {/if}
-                  {#if child.input_conditions.length > 0}
-                    <span class="canvas-badge info-badge">{child.input_conditions.length} input</span>
-                  {/if}
-                {/if}
-              </div>
+        {#if child.type === "step"}
+          <div
+            class="canvas-step"
+            class:selected={selectedNodeId === child.id}
+            data-node-id={child.id}
+            onclick={() => onselect(child.id)}
+            oncontextmenu={(e) => { e.stopPropagation(); onContextMenu(e, child.id, node.id, cidx); }}
+            role="button"
+            tabindex="0"
+          >
+            <div class="canvas-step-row">
+              <span class="canvas-step-icon">{"\u25CF"}</span>
+              <span class="canvas-node-title">{child.title}</span>
+              <span class="flex-grow-1"></span>
+              <span class="canvas-badge duration-badge" title="Duration">{child.duration_minutes} min</span>
+              {#if child.changeover_minutes > 0}
+                <span class="canvas-badge change-badge" title="Changeover">+{child.changeover_minutes}</span>
+              {/if}
+              {#if child.required_executions > 1}
+                <span class="canvas-badge execs-badge" title="Executions">x{child.required_executions}</span>
+              {/if}
+              {#if child.input_conditions.length > 0}
+                <span class="canvas-badge info-badge">{child.input_conditions.length} input</span>
+              {/if}
             </div>
-            {#if child.type === "group"}
-              <svelte:self
-                nodes={[child]}
-                {selectedNodeId}
-                {definitions}
-                {onContextMenu}
-                {onselect}
-              />
-            {/if}
-          {/each}
+          </div>
+        {:else}
+          <svelte:self
+            nodes={[child]}
+            parentId={node.id}
+            {selectedNodeId}
+            {definitions}
+            {onContextMenu}
+            {onselect}
+          />
+        {/if}
+      {/each}
         </div>
       {/if}
     {:else}
       <div
         class="canvas-step"
         class:selected={selectedNodeId === node.id}
+        data-node-id={node.id}
         onclick={() => onselect(node.id)}
         oncontextmenu={(e) => { e.stopPropagation(); onContextMenu(e, node.id, null, idx); }}
         role="button"
@@ -107,6 +123,7 @@
     {/if}
   </div>
 {/each}
+</div>
 
 <style>
   .canvas-node-wrapper {

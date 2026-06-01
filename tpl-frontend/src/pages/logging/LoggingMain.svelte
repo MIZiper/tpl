@@ -417,15 +417,24 @@
                       <span class="badge bg-success">Running</span>
                     {:else if computeEntryStatus(selEntry) === "completed"}
                       <span class="badge bg-primary">Completed</span>
+                      {#if selEntry.required_executions > 1}
+                        <span class="badge bg-info">{selEntry.executions.filter(r => r.status === "completed").length}/{selEntry.required_executions}</span>
+                      {/if}
                       <button class="btn btn-sm btn-outline-success" onclick={() => selEntry.plan_step_id ? handleStart(selEntry.plan_step_id!) : doStart(selEntry.id)}>Run Again</button>
                     {:else if computeEntryStatus(selEntry) === "partial"}
                       <span class="badge bg-info">{selEntry.executions.filter(r => r.status==="completed").length}/{selEntry.required_executions}</span>
                       <button class="btn btn-sm btn-outline-success" onclick={() => selEntry.plan_step_id ? handleStart(selEntry.plan_step_id!) : doStart(selEntry.id)}>Run Again</button>
                     {:else}
+                      {#if selEntry.required_executions > 1}
+                        <span class="badge bg-info">{selEntry.executions.filter(r => r.status === "completed").length}/{selEntry.required_executions}</span>
+                      {/if}
                       <button class="btn btn-sm btn-success" onclick={() => selEntry.plan_step_id ? handleStart(selEntry.plan_step_id!) : doStart(selEntry.id)}>Start</button>
                     {/if}
-                  {:else}
-                    <button class="btn btn-sm btn-success" onclick={() => handleStart(displayStep.id)}>Start</button>
+                    {:else}
+                      {#if displayStep.required_executions > 1}
+                        <span class="badge bg-info">0/{displayStep.required_executions}</span>
+                      {/if}
+                      <button class="btn btn-sm btn-success" onclick={() => handleStart(displayStep.id)}>Start</button>
                   {/if}
                 </div>
               </div>
@@ -442,6 +451,9 @@
                     <div>
                       <div class="d-flex align-items-center gap-2">
                         <span class="badge bg-success">Running</span>
+                        {#if selEntry.required_executions > 1}
+                          <span class="badge bg-info">{selEntry.executions.filter(r => r.status === "completed").length + 1}/{selEntry.required_executions}</span>
+                        {/if}
                         <strong class="elapsed-timer">{formatElapsed(tick)}</strong>
                       </div>
                       <small class="text-muted">Started {formatTime(run.started_at)}</small>
