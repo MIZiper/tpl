@@ -8,6 +8,8 @@ test/
 # C extensions
 *.so
 
+z*.sql
+
 # Distribution / packaging
 .Python
 build/

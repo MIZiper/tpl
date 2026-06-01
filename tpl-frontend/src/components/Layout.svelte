@@ -8,6 +8,7 @@
 <div class="app-layout">
   <nav class="navbar navbar-expand navbar-dark bg-dark mb-3">
     <div class="container-fluid">
+      <img src="/tpl-logo-w.png" alt="TPL logo" height="36px" />
       <a class="navbar-brand" href={p("/")}>TPL</a>
       <ul class="navbar-nav">
         <li class="nav-item">
