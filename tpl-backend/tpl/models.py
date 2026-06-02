@@ -316,6 +316,7 @@ class PlanFieldDef(BaseModel):
     unit: str | None = None
     default_value: Any | None = None
     options: list[str] | None = None
+    meta: dict[str, Any] | None = None
 
 
 class PlanDefinitions(BaseModel):
@@ -355,11 +356,21 @@ class PlanTemplate(BaseModel):
     step: PlanNode
 
 
+class TransformDef(BaseModel):
+    id: str
+    name: str
+    method_id: str
+    source_definition_ids: list[str] = Field(default_factory=list)
+    derived_definition_id: str
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
 class PlanDocument(BaseModel):
     version: int = 1
     definitions: PlanDefinitions = Field(default_factory=PlanDefinitions)
     root: list[PlanNode] = Field(default_factory=list)
     templates: list[PlanTemplate] = Field(default_factory=list)
+    transforms: list[TransformDef] = Field(default_factory=list)
 
 
 class PlanDocumentUpdate(BaseModel):

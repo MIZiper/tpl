@@ -1,4 +1,6 @@
-import type { PlanNode, PlanDocument, PlanDefinitions, PlanFieldDef } from "../../types/plan";
+import type { PlanNode, PlanDocument, PlanDefinitions, PlanFieldDef, FieldBinding, TransformDef } from "../../types/plan";
+import type { ExecutionReading } from "../../types/execution";
+import { evaluateTransform } from "./transform-registry";
 
 let _counter = 0;
 const prefix = Math.random().toString(36).slice(2, 8);
@@ -10,7 +12,7 @@ export function generateId(): string {
 
 export function createDefaultDocument(): PlanDocument {
   return {
-    version: 1,
+    version: 2,
     definitions: {
       input_conditions: [],
       collection_items: [],
@@ -19,6 +21,7 @@ export function createDefaultDocument(): PlanDocument {
     },
     root: [],
     templates: [],
+    transforms: [],
   };
 }
 
@@ -256,4 +259,55 @@ export function definitionsToFieldBindings(defs: PlanFieldDef[]): FieldBinding[]
     operator: d.field_type === "threshold" ? "<=" : null,
     target_value: null,
   }));
+}
+
+export function getDerivedDefinitions(defs: PlanDefinitions): PlanFieldDef[] {
+  const all: PlanFieldDef[] = [
+    ...defs.input_conditions,
+    ...defs.collection_items,
+    ...defs.completion_criteria,
+    ...defs.custom,
+  ];
+  return all.filter((d) => d.meta?.derived === true);
+}
+
+export function computeDerivedValues(
+  transforms: TransformDef[],
+  sourceReadings: ExecutionReading[],
+  definitions: PlanDefinitions
+): ExecutionReading[] {
+  if (!transforms.length) return [];
+
+  const allDefs: PlanFieldDef[] = [
+    ...definitions.input_conditions,
+    ...definitions.collection_items,
+    ...definitions.completion_criteria,
+    ...definitions.custom,
+  ];
+
+  const defById = new Map<string, PlanFieldDef>();
+  for (const d of allDefs) defById.set(d.id, d);
+
+  const readingByDefId: Record<string, unknown> = {};
+  for (const r of sourceReadings) readingByDefId[r.definition_id] = r.value;
+
+  const results: ExecutionReading[] = [];
+  for (const t of transforms) {
+    const derivedDef = defById.get(t.derived_definition_id);
+    if (!derivedDef) continue;
+
+    const sourceValues: Record<string, unknown> = {};
+    for (const sid of t.source_definition_ids) {
+      sourceValues[sid] = readingByDefId[sid] ?? null;
+    }
+
+    const computed = evaluateTransform(t.method_id, sourceValues, t.params);
+    results.push({
+      definition_id: t.derived_definition_id,
+      definition_name: derivedDef.name,
+      value: computed,
+    });
+  }
+
+  return results;
 }

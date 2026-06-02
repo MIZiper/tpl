@@ -3,7 +3,8 @@
   import { p, route } from "../../router";
   import { execState, load, init, saveDoc, startRun, completeRun, updateRun, computeEntryStatus } from "../../stores/execution";
   import { executionApi, planApi } from "../../lib/api";
-  import { findNode, generateId } from "../../lib/plan-utils";
+  import { findNode, generateId, computeDerivedValues } from "../../lib/plan-utils";
+  import { formatDynamic } from "../../lib/dynamic-registry";
   import type { ExecutionEntry, ExecutionRun } from "../../types/execution";
   import type { PlanNode, PlanFieldDef, FieldBinding } from "../../types/plan";
   import LogStepTree from "./LogStepTree.svelte";
@@ -226,11 +227,16 @@
   async function handleCompleteRun(runId: string) {
     if (!doc || !selEntry) return;
 
-    const input_readings = (displayStep?.input_conditions || []).map(b => ({
+    const input_readings: Array<{ definition_id: string; definition_name: string; value: unknown }> = (displayStep?.input_conditions || []).map(b => ({
       definition_id: b.definition_id,
       definition_name: defName(b.definition_id),
       value: inputValues[b.definition_id] ?? b.value ?? null,
     }));
+
+    if (plan && plan.transforms?.length) {
+      const derived = computeDerivedValues(plan.transforms, input_readings as any, plan.definitions);
+      input_readings.push(...derived);
+    }
     const collection_results = (displayStep?.collection_items || []).map(b => ({
       definition_id: b.definition_id,
       definition_name: defName(b.definition_id),
@@ -466,17 +472,49 @@
                 </div>
               {/if}
 
-              <!-- Inputs: read-only blocks -->
+              <!-- Inputs: read-only blocks (editable during run for dynamic types) -->
               {#if displayStep.input_conditions.length > 0}
                 <div class="mb-3">
                   <div class="binding-category">Input Conditions</div>
                   <div class="field-blocks">
                     {#each displayStep.input_conditions as b (b.definition_id)}
                       {@const d = defField(b.definition_id)}
-                      <div class="field-block">
-                        <div class="field-block-label">{d?.name || b.definition_id.slice(0,8)}</div>
+                      {@const isDynamic = d?.field_type === "dynamic" || d?.meta?.dynamic}
+                      {@const isDerived = d?.field_type === "derived" || d?.meta?.derived}
+                      {@const inputVal = inputValues[b.definition_id] ?? b.value}
+                      <div class="field-block" class:derived={isDerived}>
+                        <div class="field-block-label">
+                          {d?.name || b.definition_id.slice(0,8)}
+                          {#if isDynamic}<span class="badge bg-info ms-1">Dynamic</span>{/if}
+                          {#if isDerived}<span class="badge bg-secondary ms-1">Computed</span>{/if}
+                        </div>
                         {#if d?.unit}<small class="text-muted">{d.unit}</small>{/if}
-                        <div class="field-block-value">{b.value ?? "—"}</div>
+                        {#if d?.field_type === "numeric_tolerance" && d.meta?.tolerance_plus != null}
+                          <small class="text-muted d-block">±{d.meta.tolerance_plus}{d.meta.tolerance_minus != null ? `/+${d.meta.tolerance_minus}` : ""}{d.unit ? ` ${d.unit}` : ""}</small>
+                        {/if}
+                        {#if d?.field_type === "percentage" && d.meta?.reference_value != null}
+                          <small class="text-muted d-block">ref: {d.meta.reference_value}{d.unit ? ` ${d.unit}` : ""}</small>
+                        {/if}
+                        {#if d?.field_type === "range" && d.meta?.range_min != null}
+                          <small class="text-muted d-block">{d.meta.range_min}→{d.meta.range_max} step {d.meta.range_step}{d.unit ? ` ${d.unit}` : ""}</small>
+                        {/if}
+                        {#if d?.field_type === "dynamic" && d.meta?.dynamic_type}
+                          <small class="text-muted d-block">{formatDynamic(d.meta.dynamic_type, d.meta.dynamic_params ?? {})}</small>
+                        {/if}
+
+                        {#if run && (isDynamic || d?.field_type === "percentage" || d?.field_type === "numeric_tolerance" || d?.field_type === "range")}
+                          <input type={d?.field_type === "range" || d?.field_type === "numeric_tolerance" || d?.field_type === "percentage" ? "number" : "text"}
+                            class="form-control form-control-sm mt-1"
+                            placeholder="Value"
+                            value={inputVal ?? ""}
+                            oninput={(e) => inputValues = { ...inputValues, [b.definition_id]: (e.target as HTMLInputElement).value }}
+                          />
+                        {:else if isDerived && run}
+                          {@const dr = run.input_readings.find(r => r.definition_id === b.definition_id)}
+                          <div class="field-block-value">{dr?.value ?? inputVal ?? "—"}</div>
+                        {:else}
+                          <div class="field-block-value">{inputVal ?? "—"}</div>
+                        {/if}
                       </div>
                     {/each}
                   </div>
@@ -502,6 +540,11 @@
                               <div class="d-flex gap-1">
                                 <button class="btn btn-sm {chosen === 'pass' ? 'btn-success' : 'btn-outline-success'}" onclick={() => measFlags = { ...measFlags, [b.definition_id]: 'pass' }}>Pass</button>
                                 <button class="btn btn-sm {chosen === 'fail' ? 'btn-danger' : 'btn-outline-danger'}" onclick={() => measFlags = { ...measFlags, [b.definition_id]: 'fail' }}>Fail</button>
+                              </div>
+                            {:else if d?.field_type === "number"}
+                              <div class="input-group input-group-sm">
+                                <input type="number" class="form-control form-control-sm" placeholder="Value" value={val ?? ""} oninput={(e) => measValues = { ...measValues, [b.definition_id]: (e.target as HTMLInputElement).value }} />
+                                {#if d?.unit}<span class="input-group-text">{d.unit}</span>{/if}
                               </div>
                             {:else}
                               <input type={d?.field_type === "number" || d?.field_type === "measurement" ? "number" : "text"} class="form-control form-control-sm" placeholder="Value" value={val ?? ""} oninput={(e) => measValues = { ...measValues, [b.definition_id]: (e.target as HTMLInputElement).value }} />
@@ -529,6 +572,9 @@
                         <div class="field-block-label">{d?.name || b.definition_id.slice(0,8)}</div>
                         {#if d?.field_type === "threshold"}
                           <small class="text-muted">{b.operator} {b.target_value}{d?.unit ? ` ${d.unit}` : ""}</small>
+                        {/if}
+                        {#if d?.field_type === "reference_compare"}
+                          <small class="text-muted d-block">Standard: {d.meta?.reference_value ?? "—"}{d?.unit ? ` ${d.unit}` : ""}</small>
                         {/if}
                         {#if run && !saved}
                           <div class="mt-1 d-flex gap-1">
@@ -757,6 +803,7 @@
   .field-blocks { display: flex; flex-wrap: wrap; gap: 6px; }
   .field-block { padding: 8px 10px; background: #fff; border: 1px solid #dee2e6; border-radius: 6px; min-width: 100px; flex: 1; }
   .field-block.measurement { border-left: 3px solid #0d6efd; }
+  .field-block.derived { border-left: 3px solid #6f42c1; background: #f8f6ff; }
   .field-block.criteria { border-left: 3px solid #198754; }
   .field-block.criteria.passed { background: #d1e7dd; border-color: #198754; }
   .field-block.criteria.failed { background: #f8d7da; border-color: #dc3545; }

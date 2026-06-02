@@ -1,3 +1,17 @@
+export interface PlanFieldDefMeta {
+  tolerance_plus?: number;
+  tolerance_minus?: number;
+  reference_value?: number;
+  range_min?: number;
+  range_max?: number;
+  range_step?: number;
+  dynamic?: boolean;
+  dynamic_type?: string;
+  dynamic_params?: Record<string, unknown>;
+  derived?: boolean;
+  source_definition_ids?: string[];
+}
+
 export interface PlanFieldDef {
   id: string;
   name: string;
@@ -5,6 +19,7 @@ export interface PlanFieldDef {
   unit: string | null;
   default_value: unknown;
   options: string[] | null;
+  meta: PlanFieldDefMeta | null;
 }
 
 export interface PlanDefinitions {
@@ -44,9 +59,43 @@ export interface PlanTemplate {
   step: PlanNode;
 }
 
+export interface TransformParamDef {
+  key: string;
+  label: string;
+  type: "number" | "text" | "select" | "definition_ref";
+  default?: unknown;
+  options?: string[];
+  required?: boolean;
+}
+
+export interface TransformMethodDef {
+  id: string;
+  name: string;
+  description?: string;
+  category?: string;
+  params_schema: TransformParamDef[];
+}
+
+export interface TransformDef {
+  id: string;
+  name: string;
+  method_id: string;
+  source_definition_ids: string[];
+  derived_definition_id: string;
+  params: Record<string, unknown>;
+}
+
+export interface DynamicTypeDef {
+  id: string;
+  name: string;
+  description?: string;
+  params_schema: TransformParamDef[];
+}
+
 export interface PlanDocument {
   version: number;
   definitions: PlanDefinitions;
   root: PlanNode[];
   templates: PlanTemplate[];
+  transforms: TransformDef[];
 }
