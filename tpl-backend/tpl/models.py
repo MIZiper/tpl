@@ -312,7 +312,7 @@ class SyncPayload(BaseModel):
 class PlanFieldDef(BaseModel):
     id: str
     name: str
-    field_type: str
+    data_type: str
     unit: str | None = None
     default_value: Any | None = None
     options: list[str] | None = None
@@ -329,6 +329,8 @@ class PlanDefinitions(BaseModel):
 class FieldBinding(BaseModel):
     definition_id: str
     value: Any | None = None
+    dynamic_type: str | None = None
+    dynamic_params: dict[str, Any] | None = None
     operator: str | None = None
     target_value: Any | None = None
 
@@ -356,6 +358,23 @@ class PlanTemplate(BaseModel):
     step: PlanNode
 
 
+class TransformParamDef(BaseModel):
+    key: str
+    label: str
+    type: str
+    default: Any | None = None
+    options: list[str] | None = None
+    required: bool = False
+
+
+class TransformMethodDef(BaseModel):
+    id: str
+    name: str
+    description: str | None = None
+    category: str | None = None
+    params_schema: list[TransformParamDef] = Field(default_factory=list)
+
+
 class TransformDef(BaseModel):
     id: str
     name: str
@@ -365,12 +384,21 @@ class TransformDef(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict)
 
 
+class DynamicTypeDef(BaseModel):
+    id: str
+    name: str
+    description: str | None = None
+    params_schema: list[TransformParamDef] = Field(default_factory=list)
+
+
 class PlanDocument(BaseModel):
     version: int = 1
     definitions: PlanDefinitions = Field(default_factory=PlanDefinitions)
     root: list[PlanNode] = Field(default_factory=list)
     templates: list[PlanTemplate] = Field(default_factory=list)
     transforms: list[TransformDef] = Field(default_factory=list)
+    dynamic_types: list[DynamicTypeDef] = Field(default_factory=list)
+    transform_methods: list[TransformMethodDef] = Field(default_factory=list)
 
 
 class PlanDocumentUpdate(BaseModel):

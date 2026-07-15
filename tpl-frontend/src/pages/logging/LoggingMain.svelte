@@ -97,13 +97,13 @@
   // For ad-hoc entries: build synthetic field bindings from selected definitions
   const adhocBindings = $derived((selEntry?.type === "adhoc" && plan && selEntry.selected_bindings) ? {
     input_conditions: (selEntry.selected_bindings.input_conditions || []).map(id => 
-      plan.definitions.input_conditions.find(d => d.id === id) || { id, name: "", field_type: "text", unit: null, default_value: null, options: null }
+      plan.definitions.input_conditions.find(d => d.id === id) || { id, name: "", data_type: "text", unit: null, default_value: null, options: null }
     ).map(d => ({ definition_id: d.id, value: null, operator: null, target_value: null })),
     collection_items: (selEntry.selected_bindings.collection_items || []).map(id =>
-      plan.definitions.collection_items.find(d => d.id === id) || { id, name: "", field_type: "text", unit: null, default_value: null, options: null }
+      plan.definitions.collection_items.find(d => d.id === id) || { id, name: "", data_type: "text", unit: null, default_value: null, options: null }
     ).map(d => ({ definition_id: d.id, value: null, operator: null, target_value: null })),
     completion_criteria: (selEntry.selected_bindings.completion_criteria || []).map(id =>
-      plan.definitions.completion_criteria.find(d => d.id === id) || { id, name: "", field_type: "text", unit: null, default_value: null, options: null }
+      plan.definitions.completion_criteria.find(d => d.id === id) || { id, name: "", data_type: "text", unit: null, default_value: null, options: null }
     ).map(d => ({ definition_id: d.id, value: null, operator: null, target_value: null })),
   } : null);
 
@@ -227,7 +227,7 @@
   async function handleCompleteRun(runId: string) {
     if (!doc || !selEntry) return;
 
-    const input_readings: Array<{ definition_id: string; definition_name: string; value: unknown }> = (displayStep?.input_conditions || []).map(b => ({
+    const input_readings: Array<{ definition_id: string; definition_name: string; value: unknown }> = (displayStep?.input_conditions || []).map((b: FieldBinding) => ({
       definition_id: b.definition_id,
       definition_name: defName(b.definition_id),
       value: inputValues[b.definition_id] ?? b.value ?? null,
@@ -237,13 +237,13 @@
       const derived = computeDerivedValues(plan.transforms, input_readings as any, plan.definitions);
       input_readings.push(...derived);
     }
-    const collection_results = (displayStep?.collection_items || []).map(b => ({
+    const collection_results = (displayStep?.collection_items || []).map((b: FieldBinding) => ({
       definition_id: b.definition_id,
       definition_name: defName(b.definition_id),
       result: measFlags[b.definition_id] ?? measValues[b.definition_id] ?? String(b.value ?? null),
       notes: null as string | null,
     }));
-    const criteria_results = (displayStep?.completion_criteria || []).map(b => ({
+    const criteria_results = (displayStep?.completion_criteria || []).map((b: FieldBinding) => ({
       definition_id: b.definition_id,
       definition_name: defName(b.definition_id),
       passed: critFlags[b.definition_id] ?? (b.value === true ? true : (b.value === false ? false : null)),
@@ -479,8 +479,8 @@
                   <div class="field-blocks">
                     {#each displayStep.input_conditions as b (b.definition_id)}
                       {@const d = defField(b.definition_id)}
-                      {@const isDynamic = d?.field_type === "dynamic" || d?.meta?.dynamic}
-                      {@const isDerived = d?.field_type === "derived" || d?.meta?.derived}
+                      {@const isDynamic = !!(b.dynamic_type && b.dynamic_type !== "constant")}
+                      {@const isDerived = plan?.transforms?.some(t => t.derived_definition_id === b.definition_id)}
                       {@const inputVal = inputValues[b.definition_id] ?? b.value}
                       <div class="field-block" class:derived={isDerived}>
                         <div class="field-block-label">
@@ -489,21 +489,21 @@
                           {#if isDerived}<span class="badge bg-secondary ms-1">Computed</span>{/if}
                         </div>
                         {#if d?.unit}<small class="text-muted">{d.unit}</small>{/if}
-                        {#if d?.field_type === "numeric_tolerance" && d.meta?.tolerance_plus != null}
+                        {#if d?.data_type === "numeric_tolerance" && d.meta?.tolerance_plus != null}
                           <small class="text-muted d-block">±{d.meta.tolerance_plus}{d.meta.tolerance_minus != null ? `/+${d.meta.tolerance_minus}` : ""}{d.unit ? ` ${d.unit}` : ""}</small>
                         {/if}
-                        {#if d?.field_type === "percentage" && d.meta?.reference_value != null}
+                        {#if d?.data_type === "percentage" && d.meta?.reference_value != null}
                           <small class="text-muted d-block">ref: {d.meta.reference_value}{d.unit ? ` ${d.unit}` : ""}</small>
                         {/if}
-                        {#if d?.field_type === "range" && d.meta?.range_min != null}
+                        {#if d?.data_type === "range" && d.meta?.range_min != null}
                           <small class="text-muted d-block">{d.meta.range_min}→{d.meta.range_max} step {d.meta.range_step}{d.unit ? ` ${d.unit}` : ""}</small>
                         {/if}
-                        {#if d?.field_type === "dynamic" && d.meta?.dynamic_type}
-                          <small class="text-muted d-block">{formatDynamic(d.meta.dynamic_type, d.meta.dynamic_params ?? {})}</small>
+                        {#if b.dynamic_type && b.dynamic_type !== "constant"}
+                          <small class="text-muted d-block">{formatDynamic(b.dynamic_type, b.dynamic_params ?? {})}</small>
                         {/if}
 
-                        {#if run && (isDynamic || d?.field_type === "percentage" || d?.field_type === "numeric_tolerance" || d?.field_type === "range")}
-                          <input type={d?.field_type === "range" || d?.field_type === "numeric_tolerance" || d?.field_type === "percentage" ? "number" : "text"}
+                        {#if run && (isDynamic || d?.data_type === "percentage" || d?.data_type === "numeric_tolerance" || d?.data_type === "range")}
+                          <input type={d?.data_type === "range" || d?.data_type === "numeric_tolerance" || d?.data_type === "percentage" ? "number" : "text"}
                             class="form-control form-control-sm mt-1"
                             placeholder="Value"
                             value={inputVal ?? ""}
@@ -536,18 +536,18 @@
                         {#if d?.unit}<small class="text-muted">{d.unit}</small>{/if}
                         {#if run && !saved}
                           <div class="mt-1">
-                            {#if d?.field_type === "boolean" || d?.field_type === "pass_fail"}
+                            {#if d?.data_type === "boolean" || d?.data_type === "pass_fail"}
                               <div class="d-flex gap-1">
                                 <button class="btn btn-sm {chosen === 'pass' ? 'btn-success' : 'btn-outline-success'}" onclick={() => measFlags = { ...measFlags, [b.definition_id]: 'pass' }}>Pass</button>
                                 <button class="btn btn-sm {chosen === 'fail' ? 'btn-danger' : 'btn-outline-danger'}" onclick={() => measFlags = { ...measFlags, [b.definition_id]: 'fail' }}>Fail</button>
                               </div>
-                            {:else if d?.field_type === "number"}
+                            {:else if d?.data_type === "number"}
                               <div class="input-group input-group-sm">
                                 <input type="number" class="form-control form-control-sm" placeholder="Value" value={val ?? ""} oninput={(e) => measValues = { ...measValues, [b.definition_id]: (e.target as HTMLInputElement).value }} />
                                 {#if d?.unit}<span class="input-group-text">{d.unit}</span>{/if}
                               </div>
                             {:else}
-                              <input type={d?.field_type === "number" || d?.field_type === "measurement" ? "number" : "text"} class="form-control form-control-sm" placeholder="Value" value={val ?? ""} oninput={(e) => measValues = { ...measValues, [b.definition_id]: (e.target as HTMLInputElement).value }} />
+                              <input type={d?.data_type === "number" || d?.data_type === "measurement" ? "number" : "text"} class="form-control form-control-sm" placeholder="Value" value={val ?? ""} oninput={(e) => measValues = { ...measValues, [b.definition_id]: (e.target as HTMLInputElement).value }} />
                             {/if}
                           </div>
                         {:else}
@@ -570,11 +570,11 @@
                       {@const chosen = critFlags[b.definition_id]}
                       <div class="field-block criteria" class:passed={chosen === true} class:failed={chosen === false}>
                         <div class="field-block-label">{d?.name || b.definition_id.slice(0,8)}</div>
-                        {#if d?.field_type === "threshold"}
+                        {#if d?.data_type === "threshold"}
                           <small class="text-muted">{b.operator} {b.target_value}{d?.unit ? ` ${d.unit}` : ""}</small>
                         {/if}
-                        {#if d?.field_type === "reference_compare"}
-                          <small class="text-muted d-block">Standard: {d.meta?.reference_value ?? "—"}{d?.unit ? ` ${d.unit}` : ""}</small>
+                        {#if d?.data_type === "reference_compare"}
+                          <small class="text-muted d-block">Standard: {d.default_value ?? "—"}{d?.unit ? ` ${d.unit}` : ""}</small>
                         {/if}
                         {#if run && !saved}
                           <div class="mt-1 d-flex gap-1">
@@ -690,7 +690,7 @@
                     <span>{f.name}{#if f.unit} <small class="text-muted">({f.unit})</small>{/if}</span>
                   </label>
                   {#if adhocInputs.includes(f.id)}
-                    {#if f.field_type === "select" && f.options?.length}
+                    {#if f.data_type === "select" && f.options?.length}
                       <select class="form-select form-select-sm mt-1" value={adhocInputValues[f.id] ?? ""} onchange={(e) => {
                         adhocInputValues[f.id] = (e.target as HTMLSelectElement).value;
                         adhocInputValues = { ...adhocInputValues };
@@ -700,7 +700,7 @@
                       </select>
                     {:else}
                       <input
-                        type={f.field_type === "number" ? "number" : "text"}
+                        type={f.data_type === "number" ? "number" : "text"}
                         class="form-control form-control-sm mt-1"
                         placeholder="Value"
                         value={adhocInputValues[f.id] ?? ""}

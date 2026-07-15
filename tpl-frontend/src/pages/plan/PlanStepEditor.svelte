@@ -1,14 +1,16 @@
 <script lang="ts">
-  import type { PlanNode, PlanDefinitions, FieldBinding } from "../../types/plan";
+  import type { PlanNode, PlanDefinitions, PlanFieldDef, FieldBinding, TransformDef } from "../../types/plan";
   import { formatDynamic } from "../../lib/dynamic-registry";
 
   let {
     node,
     definitions = null,
+    transforms = [],
     onupdate = (_patch: Partial<PlanNode>) => {},
   }: {
     node: PlanNode;
     definitions: PlanDefinitions | null;
+    transforms: TransformDef[];
     onupdate: (patch: Partial<PlanNode>) => void;
   } = $props();
 
@@ -21,13 +23,17 @@
     return fieldId;
   }
 
-  function defField(fieldId: string) {
+  function defField(fieldId: string): PlanFieldDef | null {
     if (!definitions) return null;
     for (const cat of ["input_conditions", "collection_items", "completion_criteria", "custom"] as const) {
       const d = definitions[cat].find((f) => f.id === fieldId);
       if (d) return d;
     }
     return null;
+  }
+
+  function isDerivedDef(defId: string): boolean {
+    return transforms.some((t) => t.derived_definition_id === defId);
   }
 
   function bindingsForCategory(cat: keyof PlanDefinitions): FieldBinding[] {
@@ -65,20 +71,18 @@
   }
 
   function defSummary(f: PlanFieldDef): string {
-    if (f.field_type === "threshold") return "Threshold";
-    if (f.field_type === "pass_fail") return "Pass / Fail";
-    if (f.field_type === "reference_compare") return `Ref: ${f.meta?.reference_value ?? "—"}${f.unit ? ` ${f.unit}` : ""}`;
-    if (f.field_type === "boolean") return "True / False";
-    if (f.field_type === "select") return `Options: ${(f.options ?? []).join(", ") || "—"}`;
-    if (f.field_type === "numeric_tolerance") return `Numeric ±${f.meta?.tolerance_plus ?? "?"}${f.unit ? ` ${f.unit}` : ""}`;
-    if (f.field_type === "percentage") return `Percentage${f.meta?.reference_value != null ? ` (ref: ${f.meta.reference_value})` : ""}`;
-    if (f.field_type === "range") return `Range ${f.meta?.range_min ?? 0}→${f.meta?.range_max ?? 0}${f.unit ? ` ${f.unit}` : ""}`;
-    if (f.field_type === "dynamic") return `Dynamic${f.meta?.dynamic_type ? ` (${f.meta.dynamic_type})` : ""}`;
-    if (f.field_type === "derived") return "Computed";
-    if (f.field_type === "measurement") return "Measurement";
-    if (f.field_type === "number") return `Number${f.unit ? ` (${f.unit})` : ""}`;
-    if (f.field_type === "text") return "Text";
-    return f.field_type;
+    if (f.data_type === "threshold") return "Threshold";
+    if (f.data_type === "pass_fail") return "Pass / Fail";
+    if (f.data_type === "reference_compare") return `Ref: ${f.default_value ?? "—"}${f.unit ? ` ${f.unit}` : ""}`;
+    if (f.data_type === "boolean") return "True / False";
+    if (f.data_type === "select") return `Options: ${(f.options ?? []).join(", ") || "—"}`;
+    if (f.data_type === "numeric_tolerance") return `Numeric ±${f.meta?.tolerance_plus ?? "?"}${f.unit ? ` ${f.unit}` : ""}`;
+    if (f.data_type === "percentage") return `Percentage${f.meta?.reference_value != null ? ` (ref: ${f.meta.reference_value})` : ""}`;
+    if (f.data_type === "range") return `Range ${f.meta?.range_min ?? 0}→${f.meta?.range_max ?? 0}${f.unit ? ` ${f.unit}` : ""}`;
+    if (f.data_type === "measurement") return "Measurement";
+    if (f.data_type === "number") return `Number${f.unit ? ` (${f.unit})` : ""}`;
+    if (f.data_type === "text") return "Text";
+    return f.data_type;
   }
 
   function addBinding(cat: "input_conditions" | "collection_items" | "completion_criteria", defId: string) {
@@ -170,67 +174,73 @@
               {#each definitions[cat] as f (f.id)}
                 {@const binding = node[cat].find(b => b.definition_id === f.id)}
                 {#if binding}
+                  {@const isDynamic = !!binding.dynamic_type}
+                  {@const isDerived = isDerivedDef(f.id)}
                   <div class="binding-item active">
                     <div class="d-flex align-items-center justify-content-between">
                       <div class="d-flex align-items-center">
                         <span class="binding-name">{f.name}</span>
                         {#if f.unit}<small class="text-muted ms-1">({f.unit})</small>{/if}
+                        {#if isDynamic}<span class="badge bg-info ms-1">Dynamic</span>{/if}
+                        {#if isDerived}<span class="badge bg-secondary ms-1">Computed</span>{/if}
                       </div>
                       <button class="btn btn-sm btn-close-sm" onclick={() => removeBinding(cat, f.id)} title="Remove binding">&times;</button>
                     </div>
                     {#if cat === "input_conditions"}
                       <div class="binding-value mt-1">
-                        {#if f.field_type === "boolean" || f.field_type === "pass_fail"}
+                        {#if isDerived}
+                          <div class="text-muted small">
+                            Computed from {transforms.filter(t => t.derived_definition_id === f.id).length} transform(s)
+                          </div>
+                        {:else if f.data_type === "boolean" || f.data_type === "pass_fail"}
                           <select class="form-select form-select-sm" value={String(binding.value ?? "")} onchange={(e) => { const v = (e.target as HTMLSelectElement).value; updateBinding(cat, f.id, { value: v === "true" ? true : v === "false" ? false : null }); }}>
                             <option value="">--</option>
                             <option value="true">Pass / True</option>
                             <option value="false">Fail / False</option>
                           </select>
-                        {:else if f.field_type === "select" && f.options}
+                        {:else if f.data_type === "select" && f.options}
                           <select class="form-select form-select-sm" value={String(binding.value ?? "")} onchange={(e) => updateBinding(cat, f.id, { value: (e.target as HTMLSelectElement).value || null })}>
                             <option value="">--</option>
                             {#each f.options as opt}
                               <option value={opt}>{opt}</option>
                             {/each}
                           </select>
-                        {:else if f.field_type === "threshold"}
+                        {:else if f.data_type === "threshold"}
                           <div class="input-group input-group-sm">
                             <select class="form-select form-select-sm flex-shrink-1" value={binding.operator ?? "<="} onchange={(e) => updateBinding(cat, f.id, { operator: (e.target as HTMLSelectElement).value })} style="width:60px">
                               <option value="<=">&le;</option><option value=">=">&ge;</option><option value="==">=</option><option value="<">&lt;</option><option value=">">&gt;</option>
                             </select>
                             <input type="number" class="form-control form-control-sm" value={binding.target_value ?? ""} oninput={(e) => updateBinding(cat, f.id, { target_value: parseFloat((e.target as HTMLInputElement).value) || null })} placeholder="Target" />
                           </div>
-                        {:else if f.field_type === "numeric_tolerance"}
+                        {:else if f.data_type === "numeric_tolerance"}
                           <div class="d-flex gap-1 align-items-center">
                             <input type="number" class="form-control form-control-sm" value={binding.value ?? ""} oninput={(e) => updateBinding(cat, f.id, { value: parseFloat((e.target as HTMLInputElement).value) || null })} placeholder="Value" />
                             {#if f.meta?.tolerance_plus != null}<small class="text-muted text-nowrap">±{f.meta.tolerance_plus}{f.meta.tolerance_minus != null ? `/${f.meta.tolerance_minus}` : ""}{f.unit ? ` ${f.unit}` : ""}</small>{/if}
                           </div>
-                        {:else if f.field_type === "percentage"}
+                        {:else if f.data_type === "percentage"}
                           <div class="d-flex gap-1 align-items-center">
                             <input type="number" class="form-control form-control-sm" value={binding.value ?? ""} oninput={(e) => updateBinding(cat, f.id, { value: parseFloat((e.target as HTMLInputElement).value) || null })} placeholder="Value" />
                             <small class="text-muted text-nowrap">% {f.unit ?? ""}{#if f.meta?.reference_value != null} (ref: {f.meta.reference_value}){/if}</small>
                           </div>
-                        {:else if f.field_type === "range"}
+                        {:else if f.data_type === "range"}
                           <div class="d-flex gap-1 align-items-center">
                             <input type="number" class="form-control form-control-sm" min={f.meta?.range_min ?? undefined} max={f.meta?.range_max ?? undefined} step={f.meta?.range_step ?? undefined} value={binding.value ?? ""} oninput={(e) => updateBinding(cat, f.id, { value: parseFloat((e.target as HTMLInputElement).value) || null })} placeholder="Value" />
                             {#if f.meta?.range_min != null}<small class="text-muted text-nowrap">{f.meta.range_min}→{f.meta.range_max} step {f.meta.range_step}{f.unit ? ` ${f.unit}` : ""}</small>{/if}
                           </div>
-                        {:else if f.field_type === "dynamic"}
-                          <div class="d-flex gap-1 align-items-center">
-                            <input type={f.field_type === "number" ? "number" : "text"} class="form-control form-control-sm" value={binding.value ?? ""} oninput={(e) => { const raw = (e.target as HTMLInputElement).value; updateBinding(cat, f.id, { value: parseFloat(raw) || null }); }} />
-                            <span class="badge bg-info text-nowrap">Dynamic</span>
-                            {#if f.meta?.dynamic_type}
-                              <small class="text-muted text-nowrap">{formatDynamic(f.meta.dynamic_type, f.meta.dynamic_params ?? {})}</small>
-                            {/if}
-                          </div>
-                        {:else if f.field_type === "derived"}
-                          <div class="text-muted small">
-                            Computed from {f.meta?.source_definition_ids?.length ?? 0} source(s)
-                          </div>
-                        {:else if f.field_type === "number"}
-                          <div class="d-flex gap-1"><input type="number" class="form-control form-control-sm" value={binding.value ?? ""} oninput={(e) => updateBinding(cat, f.id, { value: parseFloat((e.target as HTMLInputElement).value) || null })} placeholder="Value" /></div>
                         {:else}
-                          <input type="text" class="form-control form-control-sm" value={binding.value ?? ""} oninput={(e) => updateBinding(cat, f.id, { value: (e.target as HTMLInputElement).value || null })} />
+                          <div class="d-flex gap-1">
+                            <input type="number" class="form-control form-control-sm" value={binding.value ?? ""} oninput={(e) => updateBinding(cat, f.id, { value: parseFloat((e.target as HTMLInputElement).value) || null })} placeholder="Value" />
+                            <button class="btn btn-sm btn-outline-info" class:active={isDynamic} onclick={() => {
+                              if (isDynamic) {
+                                updateBinding(cat, f.id, { dynamic_type: undefined, dynamic_params: undefined });
+                              } else {
+                                updateBinding(cat, f.id, { dynamic_type: "constant", dynamic_params: {} });
+                              }
+                            }}>Dyn</button>
+                          </div>
+                        {/if}
+                        {#if isDynamic && binding.dynamic_type && binding.dynamic_type !== "constant"}
+                          <small class="text-muted d-block mt-1">{formatDynamic(binding.dynamic_type, binding.dynamic_params ?? {})}</small>
                         {/if}
                       </div>
                     {:else}

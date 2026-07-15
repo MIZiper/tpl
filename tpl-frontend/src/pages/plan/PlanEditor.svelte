@@ -25,9 +25,8 @@
   } from "../../stores/plan";
   import { planApi } from "../../lib/api";
   import { getTransformMethods } from "../../lib/transform-registry";
-  import { getDynamicTypes } from "../../lib/dynamic-registry";
   import { generateId } from "../../lib/plan-utils";
-  import type { PlanNode, PlanFieldDef, PlanDefinitions, PlanFieldDefMeta, TransformDef } from "../../types/plan";
+  import type { PlanNode, PlanDocument, PlanFieldDef, PlanDefinitions, TransformDef } from "../../types/plan";
   import PlanCanvas from "./PlanCanvas.svelte";
   import PlanStepEditor from "./PlanStepEditor.svelte";
 
@@ -38,8 +37,8 @@
   let showInitModal = $state(false);
   let showDefForm = $state(false);
   let defCategory: keyof PlanDefinitions = $state<keyof PlanDefinitions>("input_conditions");
-  let newDef = $state({ name: "", field_type: "text", unit: null as string | null, default_value: null as any, optionsText: "" });
-  let newDefMeta = $state<PlanFieldDefMeta>({});
+  let newDef = $state({ name: "", data_type: "text", unit: null as string | null, default_value: null as any, optionsText: "" });
+  let newDefMeta = $state({ tolerance_plus: undefined as number | undefined, tolerance_minus: undefined as number | undefined, reference_value: undefined as number | undefined, range_min: undefined as number | undefined, range_max: undefined as number | undefined, range_step: undefined as number | undefined });
   let defTabExpanded: Record<string, boolean> = $state({});
   let newTemplateName = $state("");
 
@@ -89,14 +88,14 @@
 
   function addNewDef() {
     if (!newDef.name) return;
-    const isSelect = newDef.field_type === "select";
+    const isSelect = newDef.data_type === "select";
     const options = isSelect && newDef.optionsText.trim()
       ? newDef.optionsText.split(/[\n,]/).map(s => s.trim()).filter(Boolean)
       : null;
     const meta = buildMeta();
-    addDef(defCategory, { name: newDef.name, field_type: newDef.field_type, unit: newDef.unit, default_value: newDef.default_value, options, meta });
-    newDef = { name: "", field_type: "text", unit: null, default_value: null, optionsText: "" };
-    newDefMeta = {};
+    addDef(defCategory, { name: newDef.name, data_type: newDef.data_type, unit: newDef.unit, default_value: newDef.default_value, options, meta });
+    newDef = { name: "", data_type: "text", unit: null, default_value: null, optionsText: "" };
+    newDefMeta = { tolerance_plus: undefined, tolerance_minus: undefined, reference_value: undefined, range_min: undefined, range_max: undefined, range_step: undefined };
     showDefForm = false;
   }
 
@@ -106,24 +105,19 @@
     if (!doc) return;
 
     let targetDefId = newTransform.derived_definition_id;
-    let targetDefName = "";
 
     if (newTargetMode === "new" && newTargetName) {
       targetDefId = generateId();
-      targetDefName = newTargetName;
       const derivedDef: PlanFieldDef = {
         id: targetDefId,
         name: newTargetName,
-        field_type: "derived",
+        data_type: "number",
         unit: newTargetUnit || null,
         default_value: null,
         options: null,
-        meta: { derived: true, source_definition_ids: [...newTransform.source_definition_ids] },
+        meta: null,
       };
       doc.definitions.input_conditions.push(derivedDef);
-    } else if (newTargetMode === "existing" && targetDefId) {
-      const d = [...doc.definitions.input_conditions, ...doc.definitions.custom].find(f => f.id === targetDefId);
-      if (d) targetDefName = d.name;
     }
 
     if (!targetDefId) return;
@@ -162,25 +156,27 @@
   }
 
   function catLab(c: keyof PlanDefinitions) { return { input_conditions: "Input Conditions", collection_items: "Measurement Items", completion_criteria: "Completion Criteria", custom: "Custom" }[c]; }
-  function tLab(t: string) { return { text: "Text", number: "Number", numeric_tolerance: "Numeric ±Tol", percentage: "Percentage", range: "Range", boolean: "Boolean", pass_fail: "Pass/Fail", threshold: "Threshold", measurement: "Measurement", reference_compare: "Ref. Compare", select: "Select", dynamic: "Dynamic", derived: "Derived" }[t] || t; }
+  function tLab(t: string) { return { text: "Text", number: "Number", numeric_tolerance: "Numeric ±Tol", percentage: "Percentage", range: "Range", boolean: "Boolean", pass_fail: "Pass/Fail", threshold: "Threshold", measurement: "Measurement", reference_compare: "Ref. Compare", select: "Select" }[t] || t; }
   function hasC(d: PlanDocument | null) { return !!(d && (d.root.length > 0 || d.definitions.input_conditions.length > 0 || d.templates.length > 0 || d.transforms.length > 0)); }
-  function metaHas(m: PlanFieldDefMeta | null | undefined): boolean { return !!(m && Object.keys(m).length > 0); }
+  function metaHas(m: PlanFieldDef["meta"]): boolean { return !!(m && (m.tolerance_plus != null || m.tolerance_minus != null || m.reference_value != null || m.range_min != null || m.range_max != null || m.range_step != null)); }
 
-  function buildMeta(): PlanFieldDefMeta | null {
-    const m: PlanFieldDefMeta = {};
-    if (newDef.field_type === "derived") m.derived = true;
-    if (newDef.field_type === "dynamic") m.dynamic = true;
-    if (newDefMeta.tolerance_plus != null) m.tolerance_plus = newDefMeta.tolerance_plus;
-    if (newDefMeta.tolerance_minus != null) m.tolerance_minus = newDefMeta.tolerance_minus;
-    if (newDefMeta.reference_value != null) m.reference_value = newDefMeta.reference_value;
-    if (newDefMeta.range_min != null) m.range_min = newDefMeta.range_min;
-    if (newDefMeta.range_max != null) m.range_max = newDefMeta.range_max;
-    if (newDefMeta.range_step != null) m.range_step = newDefMeta.range_step;
-    if (newDefMeta.dynamic_type) { m.dynamic_type = newDefMeta.dynamic_type; m.dynamic = true; }
-    if (newDefMeta.dynamic_params && Object.keys(newDefMeta.dynamic_params).length > 0) m.dynamic_params = newDefMeta.dynamic_params;
-    if (newDefMeta.source_definition_ids?.length) m.source_definition_ids = newDefMeta.source_definition_ids;
-    if (newDefMeta.derived) m.derived = true;
-    return Object.keys(m).length > 0 ? m : null;
+  function isDerivedDef(doc: PlanDocument | null, defId: string): boolean {
+    if (!doc) return false;
+    return doc.transforms.some((t: TransformDef) => t.derived_definition_id === defId);
+  }
+
+  function buildMeta(): PlanFieldDef["meta"] {
+    const m = newDefMeta;
+    const has = m.tolerance_plus != null || m.tolerance_minus != null || m.reference_value != null || m.range_min != null || m.range_max != null || m.range_step != null;
+    if (!has) return null;
+    const meta: NonNullable<PlanFieldDef["meta"]> = {};
+    if (m.tolerance_plus != null) meta.tolerance_plus = m.tolerance_plus;
+    if (m.tolerance_minus != null) meta.tolerance_minus = m.tolerance_minus;
+    if (m.reference_value != null) meta.reference_value = m.reference_value;
+    if (m.range_min != null) meta.range_min = m.range_min;
+    if (m.range_max != null) meta.range_max = m.range_max;
+    if (m.range_step != null) meta.range_step = m.range_step;
+    return meta;
   }
 </script>
 
@@ -250,7 +246,7 @@
                 <div class="mb-2">
                   <div class="d-flex justify-content-between align-items-center mb-1"><small class="fw-bold text-muted">{catLab(cat)}</small><button class="btn btn-sm btn-link" onclick={() => { defCategory = cat; showDefForm = true; defTabExpanded[cat] = true; }}>+</button></div>
                   {#each doc.definitions[cat] as f (f.id)}
-                    <div class="def-item"><div class="flex-grow-1"><span class="me-1">{f.name}</span><small class="text-muted">({tLab(f.field_type)}{f.unit ? `, ${f.unit}` : ""}{f.options?.length ? `, ${f.options.length}opts` : ""})</small>{#if f.meta?.tolerance_plus != null}<br /><small class="text-muted">±{f.meta.tolerance_plus}{f.meta.tolerance_minus != null ? `/+${f.meta.tolerance_minus}` : ""}</small>{/if}{#if f.meta?.reference_value != null}<br /><small class="text-muted">ref: {f.meta.reference_value}</small>{/if}{#if f.meta?.range_min != null}<br /><small class="text-muted">{f.meta.range_min}→{f.meta.range_max} step {f.meta.range_step}</small>{/if}{#if f.meta?.dynamic}<br /><span class="badge bg-info">Dynamic</span>{/if}{#if f.meta?.derived}<br /><span class="badge bg-secondary">Computed</span>{/if}</div><button class="btn btn-sm btn-close-sm" onclick={() => removeDef(cat, f.id)}>&times;</button></div>
+                    <div class="def-item"><div class="flex-grow-1"><span class="me-1">{f.name}</span><small class="text-muted">({tLab(f.data_type)}{f.unit ? `, ${f.unit}` : ""}{f.options?.length ? `, ${f.options.length}opts` : ""})</small>{#if f.meta?.tolerance_plus != null}<br /><small class="text-muted">±{f.meta.tolerance_plus}{f.meta.tolerance_minus != null ? `/+${f.meta.tolerance_minus}` : ""}</small>{/if}{#if f.meta?.reference_value != null}<br /><small class="text-muted">ref: {f.meta.reference_value}</small>{/if}{#if f.meta?.range_min != null}<br /><small class="text-muted">{f.meta.range_min}→{f.meta.range_max} step {f.meta.range_step}</small>{/if}{#if isDerivedDef(doc, f.id)}<br /><span class="badge bg-secondary">Computed</span>{/if}</div><button class="btn btn-sm btn-close-sm" onclick={() => removeDef(cat, f.id)}>&times;</button></div>
                   {/each}
                   {#if doc.definitions[cat].length === 0}<div class="text-muted" style="font-size:0.8rem">None</div>{/if}
 
@@ -258,9 +254,9 @@
                     <div class="card card-body mb-2 bg-light">
                       <div class="mb-2"><input class="form-control form-control-sm" placeholder="Name" bind:value={newDef.name} /></div>
                       <div class="mb-2">
-                        <select class="form-select form-select-sm" bind:value={newDef.field_type}>
+                        <select class="form-select form-select-sm" bind:value={newDef.data_type}>
                           {#if cat === "input_conditions"}
-                            <option value="text">Text</option><option value="number">Number</option><option value="numeric_tolerance">Numeric ±Tolerance</option><option value="percentage">Percentage</option><option value="range">Range</option><option value="select">Select</option><option value="boolean">Boolean</option><option value="dynamic">Dynamic</option><option value="derived">Derived</option>
+                            <option value="text">Text</option><option value="number">Number</option><option value="numeric_tolerance">Numeric ±Tolerance</option><option value="percentage">Percentage</option><option value="range">Range</option><option value="select">Select</option><option value="boolean">Boolean</option>
                            {:else if cat === "collection_items"}
                              <option value="text">Text</option><option value="number">Number</option><option value="pass_fail">Pass/Fail</option>
                           {:else if cat === "completion_criteria"}
@@ -271,22 +267,22 @@
                         </select>
                       </div>
 
-                      {#if ["number", "numeric_tolerance", "percentage", "range"].includes(newDef.field_type)}
+                      {#if ["number", "numeric_tolerance", "percentage", "range"].includes(newDef.data_type)}
                         <div class="mb-2"><input class="form-control form-control-sm" placeholder="Unit" bind:value={newDef.unit} /></div>
                       {/if}
 
-                      {#if newDef.field_type === "numeric_tolerance"}
+                      {#if newDef.data_type === "numeric_tolerance"}
                         <div class="row mb-2">
                           <div class="col-6"><input type="number" class="form-control form-control-sm" placeholder="Tolerance +" value={newDefMeta.tolerance_plus ?? ""} oninput={(e) => newDefMeta = { ...newDefMeta, tolerance_plus: parseFloat((e.target as HTMLInputElement).value) || undefined }} /></div>
                           <div class="col-6"><input type="number" class="form-control form-control-sm" placeholder="Tolerance -" value={newDefMeta.tolerance_minus ?? ""} oninput={(e) => newDefMeta = { ...newDefMeta, tolerance_minus: parseFloat((e.target as HTMLInputElement).value) || undefined }} /></div>
                         </div>
                       {/if}
 
-                      {#if newDef.field_type === "percentage"}
+                      {#if newDef.data_type === "percentage"}
                         <div class="mb-2"><input type="number" class="form-control form-control-sm" placeholder="Reference Value" value={newDefMeta.reference_value ?? ""} oninput={(e) => newDefMeta = { ...newDefMeta, reference_value: parseFloat((e.target as HTMLInputElement).value) || undefined }} /></div>
                       {/if}
 
-                      {#if newDef.field_type === "range"}
+                      {#if newDef.data_type === "range"}
                         <div class="row mb-2">
                           <div class="col-4"><input type="number" class="form-control form-control-sm" placeholder="Min" value={newDefMeta.range_min ?? ""} oninput={(e) => newDefMeta = { ...newDefMeta, range_min: parseFloat((e.target as HTMLInputElement).value) || undefined }} /></div>
                           <div class="col-4"><input type="number" class="form-control form-control-sm" placeholder="Max" value={newDefMeta.range_max ?? ""} oninput={(e) => newDefMeta = { ...newDefMeta, range_max: parseFloat((e.target as HTMLInputElement).value) || undefined }} /></div>
@@ -294,38 +290,22 @@
                         </div>
                       {/if}
 
-                      {#if newDef.field_type === "dynamic"}
-                        {@const dynTypes = getDynamicTypes()}
-                        <div class="mb-2">
-                          <select class="form-select form-select-sm" value={newDefMeta.dynamic_type ?? ""} onchange={(e) => newDefMeta = { ...newDefMeta, dynamic: true, dynamic_type: (e.target as HTMLSelectElement).value }}>
-                            <option value="">Constant</option>
-                            {#each dynTypes as dt}
-                              <option value={dt.id}>{dt.name}</option>
-                            {/each}
-                          </select>
-                        </div>
+                      {#if newDef.data_type === "reference_compare"}
+                        <div class="mb-2"><input type="text" class="form-control form-control-sm" placeholder="Reference Standard Value" value={newDef.default_value ?? ""} oninput={(e) => newDef.default_value = (e.target as HTMLInputElement).value || null} /></div>
                       {/if}
 
-                      {#if newDef.field_type === "derived"}
-                        <div class="mb-2"><small class="text-muted">Will auto-compute from transform rules</small></div>
-                      {/if}
-
-                      {#if newDef.field_type === "reference_compare"}
-                        <div class="mb-2"><input type="text" class="form-control form-control-sm" placeholder="Reference Standard Value" value={newDefMeta.reference_value ?? ""} oninput={(e) => newDefMeta = { ...newDefMeta, reference_value: (e.target as HTMLInputElement).value || undefined }} /></div>
-                      {/if}
-
-                      {#if newDef.field_type === "select"}
+                      {#if newDef.data_type === "select"}
                         <div class="mb-2"><textarea class="form-control form-control-sm" rows="2" placeholder="Options (one per line or comma-separated)" bind:value={newDef.optionsText}></textarea></div>
                       {/if}
 
                       {#if defCategory === "input_conditions" || defCategory === "custom"}
                       <div class="mb-2">
                         <small class="text-muted">Default Value</small>
-                        <input type={newDef.field_type === "number" || newDef.field_type === "range" || newDef.field_type === "numeric_tolerance" || newDef.field_type === "percentage" ? "number" : "text"} class="form-control form-control-sm" placeholder="Default value" value={newDef.default_value ?? ""} oninput={(e) => newDef.default_value = (e.target as HTMLInputElement).value || null} />
+                        <input type={newDef.data_type === "number" || newDef.data_type === "range" || newDef.data_type === "numeric_tolerance" || newDef.data_type === "percentage" ? "number" : "text"} class="form-control form-control-sm" placeholder="Default value" value={newDef.default_value ?? ""} oninput={(e) => newDef.default_value = (e.target as HTMLInputElement).value || null} />
                       </div>
                       {/if}
 
-                      <div><button class="btn btn-sm btn-primary me-1" onclick={addNewDef}>Add</button><button class="btn btn-sm btn-secondary" onclick={() => { showDefForm = false; newDefMeta = {}; }}>Cancel</button></div>
+                      <div><button class="btn btn-sm btn-primary me-1" onclick={addNewDef}>Add</button><button class="btn btn-sm btn-secondary" onclick={() => { showDefForm = false; newDefMeta = { tolerance_plus: undefined, tolerance_minus: undefined, reference_value: undefined, range_min: undefined, range_max: undefined, range_step: undefined }; }}>Cancel</button></div>
                     </div>
                   {/if}
                 </div>
@@ -356,7 +336,6 @@
 
               {#if showTransformForm}
                 {@const allInputDefs = [...doc.definitions.input_conditions, ...doc.definitions.custom]}
-                {@const allDerivedDefs = [...doc.definitions.input_conditions, ...doc.definitions.custom].filter(d => d.meta?.derived === true)}
                 {@const xformMethods = getTransformMethods()}
                 <div class="card card-body mb-2 bg-light">
                   <div class="mb-2"><input class="form-control form-control-sm" placeholder="Name" bind:value={newTransform.name} /></div>
@@ -372,7 +351,7 @@
                     {#if allInputDefs.length > 0}
                       <select class="form-select form-select-sm" multiple size={Math.min(allInputDefs.length, 5)} value={newTransform.source_definition_ids} onchange={(e) => { const sel = (e.target as HTMLSelectElement); newTransform.source_definition_ids = Array.from(sel.selectedOptions).map(o => o.value); }}>
                         {#each allInputDefs as d (d.id)}
-                          <option value={d.id}>{d.name}{d.unit ? ` (${d.unit})` : ""}{d.meta?.derived ? " [computed]" : ""}</option>
+                          <option value={d.id}>{d.name}{d.unit ? ` (${d.unit})` : ""}{isDerivedDef(doc, d.id) ? " [computed]" : ""}</option>
                         {/each}
                       </select>
                     {:else}
@@ -396,14 +375,11 @@
                       </div>
                     {:else}
                       <select class="form-select form-select-sm" bind:value={newTransform.derived_definition_id}>
-                        <option value="">-- select derived def --</option>
-                        {#each allDerivedDefs as d (d.id)}
-                          <option value={d.id}>{d.name}{d.unit ? ` (${d.unit})` : ""}</option>
+                        <option value="">-- select target def --</option>
+                        {#each allInputDefs as d (d.id)}
+                          <option value={d.id}>{d.name}{d.unit ? ` (${d.unit})` : ""}{isDerivedDef(doc, d.id) ? " [computed]" : ""}</option>
                         {/each}
                       </select>
-                      {#if allDerivedDefs.length === 0}
-                        <small class="text-muted">No derived definitions yet. Switch to "Create new" or add one in Defs tab.</small>
-                      {/if}
                     {/if}
                   </div>
 
@@ -463,7 +439,7 @@
         {#if !hasC(doc)}
           <div class="plan-empty"><div class="mb-3 text-muted">Plan is empty</div><button class="btn btn-outline-primary me-2" onclick={() => addStep(null, 0)}>+ Step</button><button class="btn btn-outline-secondary me-2" onclick={() => addGroup(null, 0)}>+ Group</button><br /><button class="btn btn-primary mt-2" onclick={() => (showInitModal = true)}>Initialize from Solutions</button></div>
         {:else}
-          <PlanCanvas nodes={doc.root} selectedNodeId={selId} definitions={doc.definitions} onContextMenu={ctxMenu} onselect={selectNode} />
+          <PlanCanvas nodes={doc.root} selectedNodeId={selId} parentId={null} definitions={doc.definitions} onContextMenu={ctxMenu} onselect={selectNode} />
         {/if}
         {#if contextMenu}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -486,7 +462,7 @@
       <!-- Right -->
       <div class="plan-right">
         {#if selNode}
-          <PlanStepEditor node={selNode} definitions={doc.definitions} onupdate={(p) => updateSelected(p)} />
+          <PlanStepEditor node={selNode} definitions={doc.definitions} transforms={doc.transforms} onupdate={(p) => updateSelected(p)} />
         {:else}
             <div class="p-3 text-center" style="margin-top:3rem"><div style="font-size:3rem;opacity:0.3">{"\u2699"}</div><div class="text-muted">Select a step to edit</div></div>
         {/if}

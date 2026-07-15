@@ -7,14 +7,14 @@
     definitions = null,
     parentId = null,
     onContextMenu = (_e: MouseEvent, _nodeId: string | null, _parentId: string | null, _index: number) => {},
-    onselect = (_id: string) => {},
+    onselect = (_id: string | null) => {},
   }: {
     nodes: PlanNode[];
     selectedNodeId: string | null;
     definitions: PlanDefinitions | null;
-    parentId: string | null;
-    onContextMenu: (e: MouseEvent, nodeId: string | null, parentId: string | null, index: number) => void;
-    onselect: (id: string) => void;
+    parentId?: string | null;
+    onContextMenu?: (e: MouseEvent, nodeId: string | null, parentId: string | null, index: number) => void;
+    onselect?: (id: string | null) => void;
   } = $props();
 
   let wrapper: HTMLDivElement | undefined = $state();

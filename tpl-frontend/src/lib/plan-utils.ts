@@ -1,5 +1,5 @@
-import type { PlanNode, PlanDocument, PlanDefinitions, PlanFieldDef, FieldBinding, TransformDef } from "../../types/plan";
-import type { ExecutionReading } from "../../types/execution";
+import type { PlanNode, PlanDocument, PlanDefinitions, PlanFieldDef, FieldBinding, TransformDef } from "../types/plan";
+import type { ExecutionReading } from "../types/execution";
 import { evaluateTransform } from "./transform-registry";
 
 let _counter = 0;
@@ -22,6 +22,8 @@ export function createDefaultDocument(): PlanDocument {
     root: [],
     templates: [],
     transforms: [],
+    dynamic_types: [],
+    transform_methods: [],
   };
 }
 
@@ -77,7 +79,7 @@ export function findNode(root: PlanNode[], nodeId: string): PlanNode | null {
 export function findParentNode(root: PlanNode[], nodeId: string): PlanNode | null {
   for (const node of root) {
     if (node.type === "group") {
-      if (node.children.some((c) => c.id === nodeId)) return node;
+      if (node.children.some((c: PlanNode) => c.id === nodeId)) return node;
       const found = findParentNode(node.children, nodeId);
       if (found) return found;
     }
@@ -150,7 +152,7 @@ export function updateNode(root: PlanNode[], nodeId: string, patch: Partial<Plan
 export function moveNodeUp(root: PlanNode[], nodeId: string): PlanNode[] {
   const parent = findParentNode(root, nodeId);
   const siblings = parent ? parent.children : root;
-  const idx = siblings.findIndex((n) => n.id === nodeId);
+  const idx = siblings.findIndex((n: PlanNode) => n.id === nodeId);
   if (idx <= 0) return root;
   const newSiblings = [...siblings];
   [newSiblings[idx - 1], newSiblings[idx]] = [newSiblings[idx], newSiblings[idx - 1]];
@@ -163,7 +165,7 @@ export function moveNodeUp(root: PlanNode[], nodeId: string): PlanNode[] {
 export function moveNodeDown(root: PlanNode[], nodeId: string): PlanNode[] {
   const parent = findParentNode(root, nodeId);
   const siblings = parent ? parent.children : root;
-  const idx = siblings.findIndex((n) => n.id === nodeId);
+  const idx = siblings.findIndex((n: PlanNode) => n.id === nodeId);
   if (idx < 0 || idx >= siblings.length - 1) return root;
   const newSiblings = [...siblings];
   [newSiblings[idx], newSiblings[idx + 1]] = [newSiblings[idx + 1], newSiblings[idx]];
@@ -191,7 +193,7 @@ export function duplicateNode(root: PlanNode[], nodeId: string): PlanNode[] {
   }
   const parent = findParentNode(root, nodeId);
   const siblings = parent ? parent.children : root;
-  const idx = siblings.findIndex((n) => n.id === nodeId);
+  const idx = siblings.findIndex((n: PlanNode) => n.id === nodeId);
   return insertNode(root, clone, parent?.id ?? null, idx + 1);
 }
 
@@ -213,7 +215,7 @@ export function removeDefinition(
 ): PlanDefinitions {
   return {
     ...defs,
-    [category]: defs[category].filter((f) => f.id !== fieldId),
+    [category]: defs[category].filter((f: PlanFieldDef) => f.id !== fieldId),
   };
 }
 
@@ -256,19 +258,20 @@ export function definitionsToFieldBindings(defs: PlanFieldDef[]): FieldBinding[]
   return defs.map((d) => ({
     definition_id: d.id,
     value: d.default_value ?? null,
-    operator: d.field_type === "threshold" ? "<=" : null,
+    operator: d.data_type === "threshold" ? "<=" : null,
     target_value: null,
   }));
 }
 
-export function getDerivedDefinitions(defs: PlanDefinitions): PlanFieldDef[] {
+export function getDerivedDefinitions(defs: PlanDefinitions, transforms: TransformDef[]): PlanFieldDef[] {
   const all: PlanFieldDef[] = [
     ...defs.input_conditions,
     ...defs.collection_items,
     ...defs.completion_criteria,
     ...defs.custom,
   ];
-  return all.filter((d) => d.meta?.derived === true);
+  const derivedIds = new Set(transforms.map((t) => t.derived_definition_id));
+  return all.filter((d) => derivedIds.has(d.id));
 }
 
 export function computeDerivedValues(

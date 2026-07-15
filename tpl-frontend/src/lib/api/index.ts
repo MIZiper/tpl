@@ -77,7 +77,7 @@ export const projectsApi = {
 
 export const planApi = {
   get: (projectId: string) => api.get<PlanTree>(`/api/projects/${projectId}/plan`),
-  initialize: (projectId: string) => api.post<PlanTree>(`/api/projects/${projectId}/plan/initialize`),
+  initialize: (projectId: string) => api.post<PlanDocument>(`/api/projects/${projectId}/plan/initialize`),
 
   getDocument: (projectId: string) => api.get<PlanDocument>(`/api/projects/${projectId}/plan-document`),
   saveDocument: (projectId: string, document: PlanDocument) =>

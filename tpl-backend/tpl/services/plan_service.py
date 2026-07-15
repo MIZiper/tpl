@@ -117,7 +117,7 @@ async def initialize_plan(db: Connection, project_id: str) -> PlanDocument:
 
             criteria: list[FieldBinding] = []
             if s["completion_criteria"]:
-                fid = _ensure_def(defs, "completion_criteria", {"name": s["completion_criteria"], "field_type": "text"})
+                fid = _ensure_def(defs, "completion_criteria", {"name": s["completion_criteria"], "data_type": "text"})
                 criteria.append(FieldBinding(definition_id=fid))
 
             node = PlanNode(
@@ -164,7 +164,7 @@ def _ensure_def(defs: PlanDefinitions, category: str, item: dict) -> str:
     field_def = PlanFieldDef(
         id=fid,
         name=name or "Unnamed",
-        field_type=item.get("field_type", item.get("type", "text")),
+        data_type=item.get("data_type", item.get("type", "text")),
         unit=item.get("unit", item.get("unit", None)),
         default_value=item.get("default_value"),
     )

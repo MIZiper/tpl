@@ -5,17 +5,12 @@ export interface PlanFieldDefMeta {
   range_min?: number;
   range_max?: number;
   range_step?: number;
-  dynamic?: boolean;
-  dynamic_type?: string;
-  dynamic_params?: Record<string, unknown>;
-  derived?: boolean;
-  source_definition_ids?: string[];
 }
 
 export interface PlanFieldDef {
   id: string;
   name: string;
-  field_type: string;
+  data_type: string;
   unit: string | null;
   default_value: unknown;
   options: string[] | null;
@@ -32,6 +27,8 @@ export interface PlanDefinitions {
 export interface FieldBinding {
   definition_id: string;
   value: unknown;
+  dynamic_type?: string;
+  dynamic_params?: Record<string, unknown>;
   operator: string | null;
   target_value: unknown;
 }
@@ -98,4 +95,6 @@ export interface PlanDocument {
   root: PlanNode[];
   templates: PlanTemplate[];
   transforms: TransformDef[];
+  dynamic_types: DynamicTypeDef[];
+  transform_methods: TransformMethodDef[];
 }

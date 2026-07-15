@@ -1,4 +1,4 @@
-import type { DynamicTypeDef, TransformParamDef } from "../types/plan";
+import type { DynamicTypeDef, TransformParamDef, PlanDocument } from "../types/plan";
 
 export type DynamicFormatter = (params: Record<string, unknown>) => string;
 
@@ -31,6 +31,15 @@ export function formatDynamic(
   const entry = registry.get(typeId);
   if (!entry) return typeId;
   return entry.formatter(params);
+}
+
+export function loadDynamicTypesFromDoc(doc: PlanDocument) {
+  for (const dt of doc.dynamic_types || []) {
+    if (!registry.has(dt.id)) {
+      const existingFormatter = registry.get(dt.id)?.formatter ?? (() => dt.name);
+      registry.set(dt.id, { type: dt, formatter: existingFormatter });
+    }
+  }
 }
 
 registerDynamicType(

@@ -1,4 +1,4 @@
-import type { TransformMethodDef, TransformParamDef } from "../types/plan";
+import type { TransformMethodDef, TransformParamDef, PlanDocument } from "../types/plan";
 
 export type TransformEvaluator = (
   sourceValues: Record<string, unknown>,
@@ -37,8 +37,12 @@ export function evaluateTransform(
   return entry.evaluator(sourceValues, params);
 }
 
-function builtinParams(): TransformParamDef[] {
-  return [];
+export function loadTransformMethodsFromDoc(doc: PlanDocument) {
+  for (const tm of doc.transform_methods || []) {
+    if (!registry.has(tm.id)) {
+      registry.set(tm.id, { method: tm, evaluator: () => null });
+    }
+  }
 }
 
 registerTransform(
