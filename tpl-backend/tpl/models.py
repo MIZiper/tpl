@@ -317,6 +317,7 @@ class PlanFieldDef(BaseModel):
     default_value: Any | None = None
     options: list[str] | None = None
     meta: dict[str, Any] | None = None
+    derived: bool = False
 
 
 class PlanDefinitions(BaseModel):
@@ -381,6 +382,8 @@ class TransformDef(BaseModel):
     method_id: str
     source_definition_ids: list[str] = Field(default_factory=list)
     derived_definition_id: str
+    derived_name: str = ""
+    derived_unit: str | None = None
     params: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -443,7 +446,7 @@ class ExecutionEntry(BaseModel):
     type: str = "planned"
     required_executions: int = 1
     executions: list[ExecutionRun] = Field(default_factory=list)
-    selected_bindings: dict[str, list[str]] | None = None
+    selected_bindings: dict[str, list[str] | dict[str, Any]] | None = None
 
 
 class ExecutionDoc(BaseModel):

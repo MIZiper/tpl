@@ -40,6 +40,7 @@ export interface ExecutionEntry {
     input_conditions: string[];
     collection_items: string[];
     completion_criteria: string[];
+    input_values?: Record<string, unknown>;
   };
 }
 

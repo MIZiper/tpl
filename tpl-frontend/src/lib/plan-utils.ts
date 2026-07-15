@@ -179,6 +179,16 @@ export function deepClone<T>(obj: T): T {
   return JSON.parse(JSON.stringify(obj));
 }
 
+export function parseNum(v: string): number | null {
+  const n = parseFloat(v);
+  return isNaN(n) ? null : n;
+}
+
+export function parseNumInt(v: string, fallback: number): number {
+  const n = parseInt(v, 10);
+  return isNaN(n) ? fallback : n;
+}
+
 export function duplicateNode(root: PlanNode[], nodeId: string): PlanNode[] {
   const node = findNode(root, nodeId);
   if (!node) return root;
@@ -263,15 +273,14 @@ export function definitionsToFieldBindings(defs: PlanFieldDef[]): FieldBinding[]
   }));
 }
 
-export function getDerivedDefinitions(defs: PlanDefinitions, transforms: TransformDef[]): PlanFieldDef[] {
+export function getDerivedDefinitions(defs: PlanDefinitions): PlanFieldDef[] {
   const all: PlanFieldDef[] = [
     ...defs.input_conditions,
     ...defs.collection_items,
     ...defs.completion_criteria,
     ...defs.custom,
   ];
-  const derivedIds = new Set(transforms.map((t) => t.derived_definition_id));
-  return all.filter((d) => derivedIds.has(d.id));
+  return all.filter((d) => d.derived === true);
 }
 
 export function computeDerivedValues(
@@ -296,18 +305,16 @@ export function computeDerivedValues(
 
   const results: ExecutionReading[] = [];
   for (const t of transforms) {
-    const derivedDef = defById.get(t.derived_definition_id);
-    if (!derivedDef) continue;
-
     const sourceValues: Record<string, unknown> = {};
     for (const sid of t.source_definition_ids) {
       sourceValues[sid] = readingByDefId[sid] ?? null;
     }
 
     const computed = evaluateTransform(t.method_id, sourceValues, t.params);
+    const defName = t.derived_name || defById.get(t.derived_definition_id)?.name || t.name;
     results.push({
-      definition_id: t.derived_definition_id,
-      definition_name: derivedDef.name,
+      definition_id: t.id,
+      definition_name: defName,
       value: computed,
     });
   }

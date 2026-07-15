@@ -15,6 +15,7 @@ export interface PlanFieldDef {
   default_value: unknown;
   options: string[] | null;
   meta: PlanFieldDefMeta | null;
+  derived?: boolean;
 }
 
 export interface PlanDefinitions {
@@ -79,6 +80,8 @@ export interface TransformDef {
   method_id: string;
   source_definition_ids: string[];
   derived_definition_id: string;
+  derived_name: string;
+  derived_unit?: string;
   params: Record<string, unknown>;
 }
 

@@ -25,7 +25,7 @@
   } from "../../stores/plan";
   import { planApi } from "../../lib/api";
   import { getTransformMethods } from "../../lib/transform-registry";
-  import { generateId } from "../../lib/plan-utils";
+  import { generateId, parseNum } from "../../lib/plan-utils";
   import type { PlanNode, PlanDocument, PlanFieldDef, PlanDefinitions, TransformDef } from "../../types/plan";
   import PlanCanvas from "./PlanCanvas.svelte";
   import PlanStepEditor from "./PlanStepEditor.svelte";
@@ -43,6 +43,7 @@
   let newTemplateName = $state("");
 
   let showTransformForm = $state(false);
+  let editingTransformId = $state<string | null>(null);
   let newTransform = $state({
     name: "",
     method_id: "formula",
@@ -100,7 +101,7 @@
   }
 
   function addTransform() {
-    if (!newTransform.name) return;
+    if (!newTransform.name && !newTargetName) return;
     const doc = $planState.document;
     if (!doc) return;
 
@@ -116,18 +117,22 @@
         default_value: null,
         options: null,
         meta: null,
+        derived: true,
       };
       doc.definitions.input_conditions.push(derivedDef);
     }
 
     if (!targetDefId) return;
 
+    const xformName = newTransform.name || newTargetName;
     const t: TransformDef = {
       id: generateId(),
-      name: newTransform.name,
+      name: xformName,
       method_id: newTransform.method_id,
       source_definition_ids: newTransform.source_definition_ids,
       derived_definition_id: targetDefId,
+      derived_name: newTargetName || "",
+      derived_unit: newTargetUnit || undefined,
       params: newTransform.params,
     };
     planState.update((s) => {
@@ -146,6 +151,14 @@
       if (!s.document) return s;
       return { ...s, document: { ...s.document, transforms: s.document.transforms.filter(t => t.id !== tId) }, dirty: true };
     });
+    if (editingTransformId === tId) editingTransformId = null;
+  }
+
+  function updateTransform(tId: string, patch: Partial<TransformDef>) {
+    planState.update((s) => {
+      if (!s.document) return s;
+      return { ...s, document: { ...s.document, transforms: s.document.transforms.map(t => t.id === tId ? { ...t, ...patch } : t) }, dirty: true };
+    });
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -162,7 +175,8 @@
 
   function isDerivedDef(doc: PlanDocument | null, defId: string): boolean {
     if (!doc) return false;
-    return doc.transforms.some((t: TransformDef) => t.derived_definition_id === defId);
+    const all = [...doc.definitions.input_conditions, ...doc.definitions.collection_items, ...doc.definitions.completion_criteria, ...doc.definitions.custom];
+    return all.find(d => d.id === defId)?.derived === true;
   }
 
   function buildMeta(): PlanFieldDef["meta"] {
@@ -273,20 +287,20 @@
 
                       {#if newDef.data_type === "numeric_tolerance"}
                         <div class="row mb-2">
-                          <div class="col-6"><input type="number" class="form-control form-control-sm" placeholder="Tolerance +" value={newDefMeta.tolerance_plus ?? ""} oninput={(e) => newDefMeta = { ...newDefMeta, tolerance_plus: parseFloat((e.target as HTMLInputElement).value) || undefined }} /></div>
-                          <div class="col-6"><input type="number" class="form-control form-control-sm" placeholder="Tolerance -" value={newDefMeta.tolerance_minus ?? ""} oninput={(e) => newDefMeta = { ...newDefMeta, tolerance_minus: parseFloat((e.target as HTMLInputElement).value) || undefined }} /></div>
+                          <div class="col-6"><input type="number" class="form-control form-control-sm" placeholder="Tolerance +" value={newDefMeta.tolerance_plus ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; newDefMeta = { ...newDefMeta, tolerance_plus: v !== "" ? parseNum(v) ?? undefined : undefined }; }} /></div>
+                          <div class="col-6"><input type="number" class="form-control form-control-sm" placeholder="Tolerance -" value={newDefMeta.tolerance_minus ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; newDefMeta = { ...newDefMeta, tolerance_minus: v !== "" ? parseNum(v) ?? undefined : undefined }; }} /></div>
                         </div>
                       {/if}
 
                       {#if newDef.data_type === "percentage"}
-                        <div class="mb-2"><input type="number" class="form-control form-control-sm" placeholder="Reference Value" value={newDefMeta.reference_value ?? ""} oninput={(e) => newDefMeta = { ...newDefMeta, reference_value: parseFloat((e.target as HTMLInputElement).value) || undefined }} /></div>
+                        <div class="mb-2"><input type="number" class="form-control form-control-sm" placeholder="Reference Value" value={newDefMeta.reference_value ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; newDefMeta = { ...newDefMeta, reference_value: v !== "" ? parseNum(v) ?? undefined : undefined }; }} /></div>
                       {/if}
 
                       {#if newDef.data_type === "range"}
                         <div class="row mb-2">
-                          <div class="col-4"><input type="number" class="form-control form-control-sm" placeholder="Min" value={newDefMeta.range_min ?? ""} oninput={(e) => newDefMeta = { ...newDefMeta, range_min: parseFloat((e.target as HTMLInputElement).value) || undefined }} /></div>
-                          <div class="col-4"><input type="number" class="form-control form-control-sm" placeholder="Max" value={newDefMeta.range_max ?? ""} oninput={(e) => newDefMeta = { ...newDefMeta, range_max: parseFloat((e.target as HTMLInputElement).value) || undefined }} /></div>
-                          <div class="col-4"><input type="number" class="form-control form-control-sm" placeholder="Step" value={newDefMeta.range_step ?? ""} oninput={(e) => newDefMeta = { ...newDefMeta, range_step: parseFloat((e.target as HTMLInputElement).value) || undefined }} /></div>
+                          <div class="col-4"><input type="number" class="form-control form-control-sm" placeholder="Min" value={newDefMeta.range_min ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; newDefMeta = { ...newDefMeta, range_min: v !== "" ? parseNum(v) ?? undefined : undefined }; }} /></div>
+                          <div class="col-4"><input type="number" class="form-control form-control-sm" placeholder="Max" value={newDefMeta.range_max ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; newDefMeta = { ...newDefMeta, range_max: v !== "" ? parseNum(v) ?? undefined : undefined }; }} /></div>
+                          <div class="col-4"><input type="number" class="form-control form-control-sm" placeholder="Step" value={newDefMeta.range_step ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; newDefMeta = { ...newDefMeta, range_step: v !== "" ? parseNum(v) ?? undefined : undefined }; }} /></div>
                         </div>
                       {/if}
 
@@ -328,6 +342,8 @@
               {/if}
             </div>
           {:else if leftTab === "transforms"}
+            {@const allInputDefs = [...doc.definitions.input_conditions, ...doc.definitions.custom]}
+            {@const xformMethods = getTransformMethods()}
             <div class="p-2">
               <div class="d-flex justify-content-between align-items-center mb-2">
                 <small class="fw-bold text-muted">TRANSFORMS</small>
@@ -335,8 +351,6 @@
               </div>
 
               {#if showTransformForm}
-                {@const allInputDefs = [...doc.definitions.input_conditions, ...doc.definitions.custom]}
-                {@const xformMethods = getTransformMethods()}
                 <div class="card card-body mb-2 bg-light">
                   <div class="mb-2"><input class="form-control form-control-sm" placeholder="Name" bind:value={newTransform.name} /></div>
                   <div class="mb-2">
@@ -359,25 +373,24 @@
                     {/if}
                   </div>
                   <div class="mb-2">
-                    <small class="text-muted d-block mb-1">Target (Derived Output)</small>
+                    <small class="text-muted d-block mb-1">Output label &amp; bind</small>
+                    <div class="d-flex gap-1 mb-1">
+                      <input class="form-control form-control-sm" placeholder="Derived name" bind:value={newTargetName} />
+                      <input class="form-control form-control-sm" placeholder="Unit" style="max-width:80px" bind:value={newTargetUnit} />
+                    </div>
                     <div class="form-check form-check-inline mb-1">
                       <input class="form-check-input" type="radio" name="targetMode" id="targetNew" checked={newTargetMode === "new"} onchange={() => newTargetMode = "new"} />
-                      <label class="form-check-label small" for="targetNew">Create new</label>
+                      <label class="form-check-label small" for="targetNew">Bind to new field</label>
                     </div>
                     <div class="form-check form-check-inline mb-1">
                       <input class="form-check-input" type="radio" name="targetMode" id="targetExist" checked={newTargetMode === "existing"} onchange={() => newTargetMode = "existing"} />
-                      <label class="form-check-label small" for="targetExist">Use existing</label>
+                      <label class="form-check-label small" for="targetExist">Bind to existing</label>
                     </div>
-                    {#if newTargetMode === "new"}
-                      <div class="d-flex gap-1 mt-1">
-                        <input class="form-control form-control-sm" placeholder="Derived name" bind:value={newTargetName} />
-                        <input class="form-control form-control-sm" placeholder="Unit" style="max-width:80px" bind:value={newTargetUnit} />
-                      </div>
-                    {:else}
-                      <select class="form-select form-select-sm" bind:value={newTransform.derived_definition_id}>
-                        <option value="">-- select target def --</option>
+                    {#if newTargetMode === "existing"}
+                      <select class="form-select form-select-sm mt-1" bind:value={newTransform.derived_definition_id}>
+                        <option value="">-- select field --</option>
                         {#each allInputDefs as d (d.id)}
-                          <option value={d.id}>{d.name}{d.unit ? ` (${d.unit})` : ""}{isDerivedDef(doc, d.id) ? " [computed]" : ""}</option>
+                          <option value={d.id}>{d.name}{d.unit ? ` (${d.unit})` : ""}{d.derived ? " [computed]" : ""}</option>
                         {/each}
                       </select>
                     {/if}
@@ -409,15 +422,65 @@
 
               {#each doc.transforms as t (t.id)}
                 {@const sourceDefs = [...doc.definitions.input_conditions, ...doc.definitions.custom].filter(d => t.source_definition_ids.includes(d.id))}
-                {@const targetDef = [...doc.definitions.input_conditions, ...doc.definitions.custom].find(d => d.id === t.derived_definition_id)}
-                <div class="def-item d-flex justify-content-between align-items-start">
-                  <div>
-                    <span>{t.name}</span>
-                    <small class="text-muted d-block">{sourceDefs.map(d => d.name).join(", ") || "?"} → {targetDef?.name || t.derived_definition_id.slice(0,8)}</small>
-                    <small class="text-muted">method: {t.method_id}</small>
+                {@const bindDef = [...doc.definitions.input_conditions, ...doc.definitions.custom].find(d => d.id === t.derived_definition_id)}
+                {@const isEditing = editingTransformId === t.id}
+                {@const sourceNames = sourceDefs.map(d => d.name).join(", ") || "?"}
+                {@const outputName = t.derived_name || bindDef?.name || "?"}
+                <div class="def-item" onclick={() => editingTransformId = isEditing ? null : t.id} style="cursor:pointer">
+                  <div class="flex-grow-1">
+                    <div class="d-flex justify-content-between align-items-start">
+                      <div>
+                        <span>{t.name}</span>
+                        <small class="text-muted d-block">{sourceNames} → {outputName}{t.derived_unit ? ` (${t.derived_unit})` : ""}</small>
+                        <small class="text-muted d-block">on: {bindDef?.name || "?"} · method: {t.method_id}</small>
+                      </div>
+                      <button class="btn btn-sm btn-close-sm" onclick={(e) => { e.stopPropagation(); removeTransform(t.id); }}>&times;</button>
+                    </div>
                   </div>
-                  <button class="btn btn-sm btn-close-sm" onclick={() => removeTransform(t.id)}>&times;</button>
                 </div>
+                {#if isEditing}
+                  {@const xformMethods = getTransformMethods()}
+                  <div class="card card-body mb-2 bg-light" style="font-size:0.8rem">
+                    <div class="mb-2"><input class="form-control form-control-sm" value={t.name} oninput={(e) => updateTransform(t.id, { name: (e.target as HTMLInputElement).value })} /></div>
+                    <div class="mb-2">
+                      <select class="form-select form-select-sm" value={t.method_id} onchange={(e) => updateTransform(t.id, { method_id: (e.target as HTMLSelectElement).value })}>
+                        {#each xformMethods as m}
+                          <option value={m.id}>{m.name}</option>
+                        {/each}
+                      </select>
+                    </div>
+                    <div class="mb-2">
+                      <small class="text-muted d-block">Sources</small>
+                      <select class="form-select form-select-sm" multiple size={Math.min(sourceDefs.length + (allInputDefs?.length ?? 0) - sourceDefs.length || 3, 5)} value={t.source_definition_ids} onchange={(e) => { const sel = (e.target as HTMLSelectElement); updateTransform(t.id, { source_definition_ids: Array.from(sel.selectedOptions).map(o => o.value) }); }}>
+                        {#each allInputDefs as d (d.id)}
+                          <option value={d.id}>{d.name}{isDerivedDef(doc, d.id) ? " [computed]" : ""}</option>
+                        {/each}
+                      </select>
+                    </div>
+                    <div class="mb-2">
+                      <small class="text-muted d-block">Output: {t.derived_name} · on: {bindDef?.name || t.derived_definition_id.slice(0,8)}</small>
+                    </div>
+                    {#each xformMethods.filter(m => m.id === t.method_id) as selMethod}
+                      <div class="mb-2"><small class="fw-bold text-muted">{selMethod.name} params</small></div>
+                      {#each selMethod.params_schema as p (p.key)}
+                        <div class="mb-2">
+                          <label class="form-label small mb-0">{p.label}</label>
+                          {#if p.type === "text"}
+                            <textarea class="form-control form-control-sm" rows="2" style="font-family:monospace;font-size:0.7rem" value={String(t.params[p.key] ?? "")} oninput={(e) => { const newParams = { ...t.params, [p.key]: (e.target as HTMLTextAreaElement).value }; updateTransform(t.id, { params: newParams }); }}></textarea>
+                          {:else if p.type === "number"}
+                            <input type="number" class="form-control form-control-sm" value={t.params[p.key] ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; const newParams = { ...t.params, [p.key]: v !== "" ? parseNum(v) : null }; updateTransform(t.id, { params: newParams }); }} />
+                          {:else if p.type === "select" && p.options}
+                            <select class="form-select form-select-sm" value={String(t.params[p.key] ?? "")} onchange={(e) => { const newParams = { ...t.params, [p.key]: (e.target as HTMLSelectElement).value }; updateTransform(t.id, { params: newParams }); }}>
+                              {#each p.options as opt}<option value={opt}>{opt}</option>{/each}
+                            </select>
+                          {:else}
+                            <input type="text" class="form-control form-control-sm" value={String(t.params[p.key] ?? "")} oninput={(e) => { const newParams = { ...t.params, [p.key]: (e.target as HTMLInputElement).value }; updateTransform(t.id, { params: newParams }); }} />
+                          {/if}
+                        </div>
+                      {/each}
+                    {/each}
+                  </div>
+                {/if}
               {/each}
               {#if doc.transforms.length === 0 && !showTransformForm}
                 <div class="text-muted" style="font-size:0.8rem">

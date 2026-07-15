@@ -5,7 +5,7 @@
   import { executionApi, planApi } from "../../lib/api";
   import { findNode, generateId, computeDerivedValues } from "../../lib/plan-utils";
   import { formatDynamic } from "../../lib/dynamic-registry";
-  import type { ExecutionEntry, ExecutionRun } from "../../types/execution";
+  import type { ExecutionEntry, ExecutionRun, ExecutionReading } from "../../types/execution";
   import type { PlanNode, PlanFieldDef, FieldBinding } from "../../types/plan";
   import LogStepTree from "./LogStepTree.svelte";
 
@@ -283,13 +283,11 @@
   async function handleAdhoc() {
     if (!doc || !adhocTitle) return;
 
-    const input_readings = adhocInputs.map(defId => ({
-      definition_id: defId,
-      definition_name: defName(defId),
-      value: adhocInputValues[defId] ?? null,
-    }));
+    const inputValuesRecord: Record<string, unknown> = {};
+    for (const defId of adhocInputs) {
+      if (adhocInputValues[defId] != null) inputValuesRecord[defId] = adhocInputValues[defId];
+    }
 
-    const now = new Date().toISOString();
     const entry: ExecutionEntry = {
       id: generateId(),
       plan_step_id: null,
@@ -301,6 +299,7 @@
         input_conditions: adhocInputs,
         collection_items: adhocMeasurements,
         completion_criteria: adhocCriteria,
+        input_values: inputValuesRecord,
       },
     };
 
@@ -480,8 +479,8 @@
                     {#each displayStep.input_conditions as b (b.definition_id)}
                       {@const d = defField(b.definition_id)}
                       {@const isDynamic = !!(b.dynamic_type && b.dynamic_type !== "constant")}
-                      {@const isDerived = plan?.transforms?.some(t => t.derived_definition_id === b.definition_id)}
-                      {@const inputVal = inputValues[b.definition_id] ?? b.value}
+                      {@const isDerived = d?.derived === true}
+                      {@const inputVal = inputValues[b.definition_id] ?? b.value ?? (selEntry?.selected_bindings?.input_values as any)?.[b.definition_id]}
                       <div class="field-block" class:derived={isDerived}>
                         <div class="field-block-label">
                           {d?.name || b.definition_id.slice(0,8)}
@@ -514,6 +513,26 @@
                           <div class="field-block-value">{dr?.value ?? inputVal ?? "—"}</div>
                         {:else}
                           <div class="field-block-value">{inputVal ?? "—"}</div>
+                        {/if}
+
+                        {#if plan?.transforms}
+                          {@const myXforms = plan.transforms.filter(t => t.derived_definition_id === b.definition_id)}
+                          {#if myXforms.length > 0 && selEntry}
+                            {@const lastRun = selEntry.executions.filter((e: ExecutionRun) => e.status === "completed").reverse()[0]}
+                            <div class="derived-outputs mt-1">
+                              {#each myXforms as xf (xf.id)}
+                                {@const xfVal = lastRun?.input_readings?.find((r: ExecutionReading) => r.definition_id === xf.id)?.value}
+                                <div class="derived-output-item">
+                                  <span class="derived-output-name">{xf.derived_name || defName(xf.derived_definition_id)}</span>
+                                  {#if xfVal != null}
+                                    <span class="derived-output-value">{String(xfVal)}{xf.derived_unit ? ` ${xf.derived_unit}` : ""}</span>
+                                  {:else}
+                                    <span class="derived-output-value text-muted">—</span>
+                                  {/if}
+                                </div>
+                              {/each}
+                            </div>
+                          {/if}
                         {/if}
                       </div>
                     {/each}
@@ -804,6 +823,10 @@
   .field-block { padding: 8px 10px; background: #fff; border: 1px solid #dee2e6; border-radius: 6px; min-width: 100px; flex: 1; }
   .field-block.measurement { border-left: 3px solid #0d6efd; }
   .field-block.derived { border-left: 3px solid #6f42c1; background: #f8f6ff; }
+  .derived-outputs { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 4px; }
+  .derived-output-item { padding: 2px 6px; background: #f0f0ff; border: 1px solid #c8c8e4; border-radius: 3px; font-size: 0.7rem; display: flex; gap: 4px; align-items: center; }
+  .derived-output-name { color: #6f42c1; font-weight: 500; }
+  .derived-output-value { color: #333; }
   .field-block.criteria { border-left: 3px solid #198754; }
   .field-block.criteria.passed { background: #d1e7dd; border-color: #198754; }
   .field-block.criteria.failed { background: #f8d7da; border-color: #dc3545; }
