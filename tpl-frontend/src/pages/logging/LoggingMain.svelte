@@ -119,6 +119,36 @@
     required_executions: 1,
   } as PlanNode : null));
 
+  const liveXformValues = $derived.by(() => {
+    if (!plan || !plan.transforms?.length || !plan.definitions) return {} as Record<string, number | null>;
+    const readings: ExecutionReading[] = [];
+    if (displayStep) {
+      for (const b of displayStep.input_conditions) {
+        readings.push({
+          definition_id: b.definition_id,
+          definition_name: defName(b.definition_id),
+          value: inputValues[b.definition_id] ?? b.value,
+        });
+      }
+      for (const b of displayStep.collection_items) {
+        const val = measValues[b.definition_id];
+        if (val != null) {
+          readings.push({
+            definition_id: b.definition_id,
+            definition_name: defName(b.definition_id),
+            value: val,
+          });
+        }
+      }
+    }
+    const derived = computeDerivedValues(plan.transforms, readings, plan.definitions);
+    const map: Record<string, number | null> = {};
+    for (const d of derived) {
+      map[d.definition_id] = d.value as number | null;
+    }
+    return map;
+  });
+
   // --- Context menu ---
   function ctxMenu(e: MouseEvent, stepId: string) {
     e.preventDefault();
@@ -509,8 +539,14 @@
                             oninput={(e) => inputValues = { ...inputValues, [b.definition_id]: (e.target as HTMLInputElement).value }}
                           />
                         {:else if isDerived && run}
+                          {@const xfOut = plan?.transforms?.find(t => t.derived_definition_id === b.definition_id)}
+                          {@const liveOut = xfOut && liveXformValues[xfOut.id]}
                           {@const dr = run.input_readings.find(r => r.definition_id === b.definition_id)}
-                          <div class="field-block-value">{dr?.value ?? inputVal ?? "—"}</div>
+                          <div class="field-block-value">{liveOut ?? dr?.value ?? inputVal ?? "—"}</div>
+                        {:else if isDerived}
+                          {@const xfOut = plan?.transforms?.find(t => t.derived_definition_id === b.definition_id)}
+                          {@const liveOut = xfOut && liveXformValues[xfOut.id]}
+                          <div class="field-block-value">{liveOut ?? inputVal ?? "—"}</div>
                         {:else}
                           <div class="field-block-value">{inputVal ?? "—"}</div>
                         {/if}
@@ -521,7 +557,9 @@
                             {@const lastRun = selEntry.executions.filter((e: ExecutionRun) => e.status === "completed").reverse()[0]}
                             <div class="derived-outputs mt-1">
                               {#each myXforms as xf (xf.id)}
-                                {@const xfVal = lastRun?.input_readings?.find((r: ExecutionReading) => r.definition_id === xf.id)?.value}
+                                {@const liveVal = liveXformValues[xf.id]}
+                                {@const runVal = lastRun?.input_readings?.find((r: ExecutionReading) => r.definition_id === xf.id)?.value}
+                                {@const xfVal = liveVal ?? runVal}
                                 <div class="derived-output-item">
                                   <span class="derived-output-name">{xf.derived_name || defName(xf.derived_definition_id)}</span>
                                   {#if xfVal != null}

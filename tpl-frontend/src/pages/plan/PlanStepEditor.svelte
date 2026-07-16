@@ -42,20 +42,23 @@
   function xformsForDef(defId: string): TransformDef[] {
     return transforms.filter((t) => t.derived_definition_id === defId);
   }
-
+  
   const liveXformValues = $derived.by(() => {
-    if (!definitions) return {} as Record<string, number | null>;
-    const readings: ExecutionReading[] = node.input_conditions.map((b) => ({
-      definition_id: b.definition_id,
-      definition_name: defName(b.definition_id),
-      value: b.value,
-    }));
+    if (!definitions || !transforms.length) return { byTfId: {} as Record<string, number | null>, byDefId: {} as Record<string, number | null> };
+    const readings: ExecutionReading[] = [
+      ...node.input_conditions.map(b => ({ definition_id: b.definition_id, definition_name: '', value: b.value })),
+      ...node.collection_items.map(b => ({ definition_id: b.definition_id, definition_name: '', value: b.value })),
+    ];
     const derived = computeDerivedValues(transforms, readings, definitions);
-    const map: Record<string, number | null> = {};
+    const byTfId: Record<string, number | null> = {};
+    const byDefId: Record<string, number | null> = {};
+    const tfMap = new Map(transforms.map(tf => [tf.id, tf.derived_definition_id]));
     for (const d of derived) {
-      map[d.definition_id] = d.value as number | null;
+      byTfId[d.definition_id] = d.value as number | null;
+      const defId = tfMap.get(d.definition_id);
+      if (defId) byDefId[defId] = d.value as number | null;
     }
-    return map;
+    return { byTfId, byDefId };
   });
 
   function bindingsForCategory(cat: keyof PlanDefinitions): FieldBinding[] {
@@ -228,6 +231,9 @@
                         {#if isDerived && binding.value == null && !isDynamic}
                           <div class="text-muted small mb-1">
                             Computed via {derivedXforms.map(t => t.derived_name || defName(t.derived_definition_id)).join(", ")}
+                            {#if liveXformValues.byDefId[f.id] != null}
+                              <span class="ms-1 fw-bold">= {liveXformValues.byDefId[f.id]}</span>
+                            {/if}
                           </div>
                         {:else if f.data_type === "bool"}
                           <select class="form-select form-select-sm" value={String(binding.value ?? "")} onchange={(e) => { const v = (e.target as HTMLSelectElement).value; updateBinding(cat, f.id, { value: v === "true" ? true : v === "false" ? false : null }); }}>
@@ -320,7 +326,7 @@
                         {#if hasReadouts}
                           <div class="derived-outputs mt-1">
                             {#each derivedXforms as xf (xf.id)}
-                              {@const val = liveXformValues[xf.id]}
+                              {@const val = liveXformValues.byTfId[xf.id]}
                               <div class="derived-output-item">
                                 <span class="derived-output-name">{xf.derived_name || defName(xf.derived_definition_id)}</span>
                                 {#if val != null}

@@ -302,11 +302,15 @@ export function computeDerivedValues(
   const readingByDefId: Record<string, unknown> = {};
   for (const r of sourceReadings) readingByDefId[r.definition_id] = r.value;
 
+  const sorted = topologicalSortTransforms(transforms, defById);
+  const computedByTfId: Record<string, unknown> = {};
+
   const results: ExecutionReading[] = [];
-  for (const t of transforms) {
+  for (const t of sorted) {
     const sourceValues: Record<string, unknown> = {};
     for (const sid of t.source_definition_ids) {
-      sourceValues[sid] = readingByDefId[sid] ?? null;
+      const srcVal = computedByTfId[sid] ?? readingByDefId[sid] ?? null;
+      sourceValues[sid] = srcVal;
       const def = defById.get(sid);
       if (def?.meta?.struct_type_id) {
         sourceValues[`${sid}__struct`] = {
@@ -317,6 +321,7 @@ export function computeDerivedValues(
     }
 
     const computed = evaluateTransform(t.method_id, sourceValues, t.params);
+    computedByTfId[t.derived_definition_id] = computed;
     const defName = t.derived_name || defById.get(t.derived_definition_id)?.name || t.name;
     results.push({
       definition_id: t.id,
@@ -326,4 +331,49 @@ export function computeDerivedValues(
   }
 
   return results;
+}
+
+function topologicalSortTransforms(
+  transforms: TransformDef[],
+  _defById: Map<string, PlanFieldDef>
+): TransformDef[] {
+  const tfById = new Map<string, TransformDef>();
+  const incoming = new Map<string, number>();
+  const adjacency = new Map<string, string[]>();
+
+  for (const t of transforms) {
+    tfById.set(t.id, t);
+    incoming.set(t.id, 0);
+    adjacency.set(t.id, []);
+  }
+
+  for (const t of transforms) {
+    for (const sid of t.source_definition_ids) {
+      const srcTf = transforms.find(tf => tf.derived_definition_id === sid);
+      if (srcTf && tfById.has(srcTf.id)) {
+        const deps = adjacency.get(srcTf.id)!;
+        deps.push(t.id);
+        incoming.set(t.id, (incoming.get(t.id) ?? 0) + 1);
+      }
+    }
+  }
+
+  const queue: string[] = [];
+  for (const [id, count] of incoming) {
+    if (count === 0) queue.push(id);
+  }
+
+  const result: TransformDef[] = [];
+  while (queue.length > 0) {
+    const tid = queue.shift()!;
+    const tf = tfById.get(tid);
+    if (tf) result.push(tf);
+    for (const nextId of adjacency.get(tid) ?? []) {
+      const newCount = (incoming.get(nextId) ?? 1) - 1;
+      incoming.set(nextId, newCount);
+      if (newCount === 0) queue.push(nextId);
+    }
+  }
+
+  return result;
 }
