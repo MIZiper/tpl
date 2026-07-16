@@ -24,6 +24,7 @@ export function createDefaultDocument(): PlanDocument {
     transforms: [],
     dynamic_types: [],
     transform_methods: [],
+    struct_types: [],
   };
 }
 
@@ -306,6 +307,13 @@ export function computeDerivedValues(
     const sourceValues: Record<string, unknown> = {};
     for (const sid of t.source_definition_ids) {
       sourceValues[sid] = readingByDefId[sid] ?? null;
+      const def = defById.get(sid);
+      if (def?.meta?.struct_type_id) {
+        sourceValues[`${sid}__struct`] = {
+          struct_type_id: def.meta.struct_type_id,
+          params: def.meta.struct_params ?? {},
+        };
+      }
     }
 
     const computed = evaluateTransform(t.method_id, sourceValues, t.params);

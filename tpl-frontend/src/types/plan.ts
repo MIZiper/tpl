@@ -7,12 +7,14 @@ export interface PlanFieldDefMeta {
   tolerance_plus?: number;
   tolerance_minus?: number;
   reference_value?: number;
+  struct_type_id?: string;
+  struct_params?: Record<string, unknown>;
 }
 
 export interface PlanFieldDef {
   id: string;
   name: string;
-  data_type: "number" | "text" | "select" | "bool";
+  data_type: "number" | "text" | "select" | "bool" | "struct";
   unit: string | null;
   meta: PlanFieldDefMeta | null;
   derived?: boolean;
@@ -90,6 +92,23 @@ export interface DynamicTypeDef {
   params_schema: TransformParamDef[];
 }
 
+export interface StructParamDef {
+  key: string;
+  label: string;
+  type: "number" | "text" | "select" | "bool";
+  default?: unknown;
+  options?: string[];
+  required?: boolean;
+}
+
+export interface StructTypeDef {
+  id: string;
+  name: string;
+  description?: string;
+  category?: string;
+  params_schema: StructParamDef[];
+}
+
 export interface PlanDocument {
   version: number;
   definitions: PlanDefinitions;
@@ -98,4 +117,5 @@ export interface PlanDocument {
   transforms: TransformDef[];
   dynamic_types: DynamicTypeDef[];
   transform_methods: TransformMethodDef[];
+  struct_types: StructTypeDef[];
 }

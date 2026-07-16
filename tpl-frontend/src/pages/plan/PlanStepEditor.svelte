@@ -103,6 +103,7 @@
       if (f.meta?.start != null) parts.push(`[${f.meta.start}→${f.meta.stop}]`);
       return `Number${parts.length ? ` (${parts.join(", ")})` : ""}`;
     }
+    if (f.data_type === "struct") return `Struct: ${f.meta?.struct_type_id ?? "?"}`;
     if (f.data_type === "text") return "Text";
     return f.data_type;
   }
@@ -293,7 +294,17 @@
                                         <select class="form-select form-select-sm" value={String(binding.dynamic_params?.[p.key] ?? p.default ?? "")} onchange={(e) => { const v = (e.target as HTMLSelectElement).value; updateDynamicParams(binding, cat, p.key, v || null); }}>
                                           {#each p.options as opt}<option value={opt}>{opt}</option>{/each}
                                         </select>
-                                      {:else}
+                        {:else if f.data_type === "struct"}
+                          <div class="text-muted small">
+                            {f.meta?.struct_type_id ?? "?"}
+                            {#if f.meta?.struct_params}
+                              {@const entries = Object.entries(f.meta.struct_params as Record<string, unknown>)}
+                              {#if entries.length > 0}
+                                ({entries.map(([k, v]) => `${k}: ${v}`).join(", ")})
+                              {/if}
+                            {/if}
+                          </div>
+                        {:else}
                                         <input type="text" class="form-control form-control-sm" value={binding.dynamic_params?.[p.key] ?? p.default ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; updateDynamicParams(binding, cat, p.key, v || null); }} />
                                       {/if}
                                     </div>

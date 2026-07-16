@@ -25,8 +25,9 @@
   } from "../../stores/plan";
   import { planApi } from "../../lib/api";
   import { getTransformMethods } from "../../lib/transform-registry";
+  import { getAllStructTypes } from "../../lib/struct-registry";
   import { generateId, parseNum } from "../../lib/plan-utils";
-  import type { PlanNode, PlanDocument, PlanFieldDef, PlanDefinitions, TransformDef } from "../../types/plan";
+  import type { PlanNode, PlanDocument, PlanFieldDef, PlanDefinitions, TransformDef, StructTypeDef } from "../../types/plan";
   import PlanCanvas from "./PlanCanvas.svelte";
   import PlanStepEditor from "./PlanStepEditor.svelte";
 
@@ -39,6 +40,8 @@
   let defCategory: keyof PlanDefinitions = $state<keyof PlanDefinitions>("input_conditions");
   let newDef = $state({ name: "", data_type: "text" as PlanFieldDef["data_type"], unit: null as string | null, optionsText: "" });
   let newDefMeta = $state({ number_kind: "plain" as string, start: undefined as number | undefined, stop: undefined as number | undefined, step: undefined as number | undefined, tolerance_plus: undefined as number | undefined, tolerance_minus: undefined as number | undefined, reference_value: undefined as number | undefined });
+  let structTypeId = $state("");
+  let structParamValues = $state<Record<string, unknown>>({});
   let defTabExpanded: Record<string, boolean> = $state({});
   let newTemplateName = $state("");
 
@@ -93,6 +96,8 @@
     addDef(defCategory, { name: newDef.name, data_type: newDef.data_type, unit: newDef.unit, meta });
     newDef = { name: "", data_type: "text", unit: null, optionsText: "" };
     newDefMeta = { number_kind: "plain", start: undefined, stop: undefined, step: undefined, tolerance_plus: undefined, tolerance_minus: undefined, reference_value: undefined };
+    structTypeId = "";
+    structParamValues = {};
     showDefForm = false;
   }
 
@@ -163,9 +168,9 @@
   }
 
   function catLab(c: keyof PlanDefinitions) { return { input_conditions: "Input Conditions", collection_items: "Measurement Items", completion_criteria: "Completion Criteria", custom: "Custom" }[c]; }
-  function tLab(t: string) { return { text: "Text", number: "Number", select: "Select", bool: "True/False" }[t] || t; }
+  function tLab(t: string) { return { text: "Text", number: "Number", select: "Select", bool: "True/False", struct: "Struct" }[t] || t; }
   function hasC(d: PlanDocument | null) { return !!(d && (d.root.length > 0 || d.definitions.input_conditions.length > 0 || d.templates.length > 0 || d.transforms.length > 0)); }
-  function metaHas(m: PlanFieldDef["meta"]): boolean { return !!(m && (m.start != null || m.stop != null || m.step != null || m.options?.length || m.tolerance_plus != null || m.tolerance_minus != null || m.reference_value != null || m.number_kind)); }
+  function metaHas(m: PlanFieldDef["meta"]): boolean { return !!(m && (m.start != null || m.stop != null || m.step != null || m.options?.length || m.tolerance_plus != null || m.tolerance_minus != null || m.reference_value != null || m.number_kind || m.struct_type_id)); }
 
   function isDerivedDef(doc: PlanDocument | null, defId: string): boolean {
     if (!doc) return false;
@@ -190,6 +195,11 @@
     const isSelect = newDef.data_type === "select";
     if (isSelect && newDef.optionsText.trim()) {
       meta.options = newDef.optionsText.split(/[\n,]/).map(s => s.trim()).filter(Boolean);
+      has = true;
+    }
+    if (newDef.data_type === "struct" && structTypeId) {
+      meta.struct_type_id = structTypeId;
+      meta.struct_params = Object.keys(structParamValues).length > 0 ? { ...structParamValues } : {};
       has = true;
     }
     return has ? meta : null;
@@ -262,7 +272,7 @@
                 <div class="mb-2">
                   <div class="d-flex justify-content-between align-items-center mb-1"><small class="fw-bold text-muted">{catLab(cat)}</small><button class="btn btn-sm btn-link" onclick={() => { defCategory = cat; showDefForm = true; defTabExpanded[cat] = true; }}>+</button></div>
                   {#each doc.definitions[cat] as f (f.id)}
-                    <div class="def-item"><div class="flex-grow-1"><span class="me-1">{f.name}</span><small class="text-muted">({tLab(f.data_type)}{f.meta?.number_kind ? ` · ${f.meta.number_kind}` : ""}{f.unit ? `, ${f.unit}` : ""}{f.meta?.options?.length ? `, ${f.meta.options.length}opts` : ""})</small>{#if f.meta?.tolerance_plus != null}<br /><small class="text-muted">±{f.meta.tolerance_plus}{f.meta.tolerance_minus != null ? `/+${f.meta.tolerance_minus}` : ""}</small>{/if}{#if f.meta?.reference_value != null}<br /><small class="text-muted">ref: {f.meta.reference_value}</small>{/if}{#if f.meta?.start != null}<br /><small class="text-muted">{f.meta.start}→{f.meta.stop} step {f.meta.step}</small>{/if}{#if isDerivedDef(doc, f.id)}<br /><span class="badge bg-secondary">Computed</span>{/if}</div><button class="btn btn-sm btn-close-sm" onclick={() => removeDef(cat, f.id)}>&times;</button></div>
+                    <div class="def-item"><div class="flex-grow-1"><span class="me-1">{f.name}</span><small class="text-muted">({tLab(f.data_type)}{f.meta?.number_kind ? ` · ${f.meta.number_kind}` : ""}{f.meta?.struct_type_id ? ` · ${f.meta.struct_type_id}` : ""}{f.unit ? `, ${f.unit}` : ""}{f.meta?.options?.length ? `, ${f.meta.options.length}opts` : ""})</small>{#if f.meta?.tolerance_plus != null}<br /><small class="text-muted">±{f.meta.tolerance_plus}{f.meta.tolerance_minus != null ? `/+${f.meta.tolerance_minus}` : ""}</small>{/if}{#if f.meta?.reference_value != null}<br /><small class="text-muted">ref: {f.meta.reference_value}</small>{/if}{#if f.meta?.start != null}<br /><small class="text-muted">{f.meta.start}→{f.meta.stop} step {f.meta.step}</small>{/if}{#if f.meta?.struct_type_id}<br /><small class="text-muted">{JSON.stringify(f.meta.struct_params ?? {})}</small>{/if}{#if isDerivedDef(doc, f.id)}<br /><span class="badge bg-secondary">Computed</span>{/if}</div><button class="btn btn-sm btn-close-sm" onclick={() => removeDef(cat, f.id)}>&times;</button></div>
                   {/each}
                   {#if doc.definitions[cat].length === 0}<div class="text-muted" style="font-size:0.8rem">None</div>{/if}
 
@@ -275,8 +285,46 @@
                           <option value="number">Number</option>
                           <option value="select">Select</option>
                           <option value="bool">True/False</option>
+                          {#if cat === "custom"}
+                            <option value="struct">Struct</option>
+                          {/if}
                         </select>
                       </div>
+
+                      {#if newDef.data_type === "struct" && cat === "custom"}
+                        {@const allStructTypes = getAllStructTypes()}
+                        <div class="mb-2">
+                          <select class="form-select form-select-sm" bind:value={structTypeId} onchange={(e) => { structTypeId = (e.target as HTMLSelectElement).value; structParamValues = {}; }}>
+                            <option value="">-- select struct type --</option>
+                            {#each allStructTypes as st}
+                              <option value={st.id}>{st.name}</option>
+                            {/each}
+                          </select>
+                        </div>
+                        {#if structTypeId}
+                          {@const selStruct = allStructTypes.find(st => st.id === structTypeId)}
+                          {#if selStruct?.params_schema}
+                            <div class="mb-2">
+                              <small class="fw-bold text-muted d-block">{selStruct.name} parameters</small>
+                              {#each selStruct.params_schema as p (p.key)}
+                                <div class="mb-1">
+                                  <label class="form-label small mb-0">{p.label}</label>
+                                  {#if p.type === "number"}
+                                    <input type="number" class="form-control form-control-sm" value={structParamValues[p.key] ?? p.default ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; structParamValues = { ...structParamValues, [p.key]: v !== "" ? parseNum(v) : undefined }; }} step="any" />
+                                  {:else if p.type === "select" && p.options}
+                                    <select class="form-select form-select-sm" value={String(structParamValues[p.key] ?? p.default ?? "")} onchange={(e) => { structParamValues = { ...structParamValues, [p.key]: (e.target as HTMLSelectElement).value }; }}>
+                                      <option value="">--</option>
+                                      {#each p.options as opt}<option value={opt}>{opt}</option>{/each}
+                                    </select>
+                                  {:else}
+                                    <input type="text" class="form-control form-control-sm" value={structParamValues[p.key] ?? p.default ?? ""} oninput={(e) => { structParamValues = { ...structParamValues, [p.key]: (e.target as HTMLInputElement).value }; }} />
+                                  {/if}
+                                </div>
+                              {/each}
+                            </div>
+                          {/if}
+                        {/if}
+                      {/if}
 
                       {#if newDef.data_type === "number"}
                         <div class="mb-2"><input class="form-control form-control-sm" placeholder="Unit" bind:value={newDef.unit} /></div>
@@ -308,7 +356,7 @@
                         <div class="mb-2"><textarea class="form-control form-control-sm" rows="2" placeholder="Options (one per line or comma-separated)" bind:value={newDef.optionsText}></textarea></div>
                       {/if}
 
-                      <div><button class="btn btn-sm btn-primary me-1" onclick={addNewDef}>Add</button><button class="btn btn-sm btn-secondary" onclick={() => { showDefForm = false; newDefMeta = { number_kind: "plain", start: undefined, stop: undefined, step: undefined, tolerance_plus: undefined, tolerance_minus: undefined, reference_value: undefined }; }}>Cancel</button></div>
+                      <div><button class="btn btn-sm btn-primary me-1" onclick={addNewDef}>Add</button><button class="btn btn-sm btn-secondary" onclick={() => { showDefForm = false; newDefMeta = { number_kind: "plain", start: undefined, stop: undefined, step: undefined, tolerance_plus: undefined, tolerance_minus: undefined, reference_value: undefined }; structTypeId = ""; structParamValues = {}; }}>Cancel</button></div>
                     </div>
                   {/if}
                 </div>
@@ -354,7 +402,7 @@
                     {#if allInputDefs.length > 0}
                       <select class="form-select form-select-sm" multiple size={Math.min(allInputDefs.length, 5)} value={newTransform.source_definition_ids} onchange={(e) => { const sel = (e.target as HTMLSelectElement); newTransform.source_definition_ids = Array.from(sel.selectedOptions).map(o => o.value); }}>
                         {#each allInputDefs as d (d.id)}
-                          <option value={d.id}>{d.name}{d.unit ? ` (${d.unit})` : ""}{isDerivedDef(doc, d.id) ? " [computed]" : ""}</option>
+                          <option value={d.id}>{d.name}{d.unit ? ` (${d.unit})` : ""}{d.data_type === "struct" ? ` [${d.meta?.struct_type_id ?? "struct"}]` : ""}{isDerivedDef(doc, d.id) ? " [computed]" : ""}</option>
                         {/each}
                       </select>
                     {:else}
@@ -442,7 +490,7 @@
                       <small class="text-muted d-block">Sources</small>
                       <select class="form-select form-select-sm" multiple size={Math.min(sourceDefs.length + (allInputDefs?.length ?? 0) - sourceDefs.length || 3, 5)} value={t.source_definition_ids} onchange={(e) => { const sel = (e.target as HTMLSelectElement); updateTransform(t.id, { source_definition_ids: Array.from(sel.selectedOptions).map(o => o.value) }); }}>
                         {#each allInputDefs as d (d.id)}
-                          <option value={d.id}>{d.name}{isDerivedDef(doc, d.id) ? " [computed]" : ""}</option>
+                          <option value={d.id}>{d.name}{d.data_type === "struct" ? ` [${d.meta?.struct_type_id ?? "struct"}]` : ""}{isDerivedDef(doc, d.id) ? " [computed]" : ""}</option>
                         {/each}
                       </select>
                     </div>

@@ -390,6 +390,23 @@ class DynamicTypeDef(BaseModel):
     params_schema: list[TransformParamDef] = Field(default_factory=list)
 
 
+class StructParamDef(BaseModel):
+    key: str
+    label: str
+    type: str
+    default: Any | None = None
+    options: list[str] | None = None
+    required: bool = False
+
+
+class StructTypeDef(BaseModel):
+    id: str
+    name: str
+    description: str | None = None
+    category: str | None = None
+    params_schema: list[StructParamDef] = Field(default_factory=list)
+
+
 class PlanDocument(BaseModel):
     version: int = 1
     definitions: PlanDefinitions = Field(default_factory=PlanDefinitions)
@@ -398,6 +415,7 @@ class PlanDocument(BaseModel):
     transforms: list[TransformDef] = Field(default_factory=list)
     dynamic_types: list[DynamicTypeDef] = Field(default_factory=list)
     transform_methods: list[TransformMethodDef] = Field(default_factory=list)
+    struct_types: list[StructTypeDef] = Field(default_factory=list)
 
 
 class PlanDocumentUpdate(BaseModel):
