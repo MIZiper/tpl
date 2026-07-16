@@ -37,8 +37,8 @@
   let showInitModal = $state(false);
   let showDefForm = $state(false);
   let defCategory: keyof PlanDefinitions = $state<keyof PlanDefinitions>("input_conditions");
-  let newDef = $state({ name: "", data_type: "text", unit: null as string | null, default_value: null as any, optionsText: "" });
-  let newDefMeta = $state({ tolerance_plus: undefined as number | undefined, tolerance_minus: undefined as number | undefined, reference_value: undefined as number | undefined, range_min: undefined as number | undefined, range_max: undefined as number | undefined, range_step: undefined as number | undefined });
+  let newDef = $state({ name: "", data_type: "text" as PlanFieldDef["data_type"], unit: null as string | null, optionsText: "" });
+  let newDefMeta = $state({ number_kind: "plain" as string, start: undefined as number | undefined, stop: undefined as number | undefined, step: undefined as number | undefined, tolerance_plus: undefined as number | undefined, tolerance_minus: undefined as number | undefined, reference_value: undefined as number | undefined });
   let defTabExpanded: Record<string, boolean> = $state({});
   let newTemplateName = $state("");
 
@@ -89,14 +89,10 @@
 
   function addNewDef() {
     if (!newDef.name) return;
-    const isSelect = newDef.data_type === "select";
-    const options = isSelect && newDef.optionsText.trim()
-      ? newDef.optionsText.split(/[\n,]/).map(s => s.trim()).filter(Boolean)
-      : null;
     const meta = buildMeta();
-    addDef(defCategory, { name: newDef.name, data_type: newDef.data_type, unit: newDef.unit, default_value: newDef.default_value, options, meta });
-    newDef = { name: "", data_type: "text", unit: null, default_value: null, optionsText: "" };
-    newDefMeta = { tolerance_plus: undefined, tolerance_minus: undefined, reference_value: undefined, range_min: undefined, range_max: undefined, range_step: undefined };
+    addDef(defCategory, { name: newDef.name, data_type: newDef.data_type, unit: newDef.unit, meta });
+    newDef = { name: "", data_type: "text", unit: null, optionsText: "" };
+    newDefMeta = { number_kind: "plain", start: undefined, stop: undefined, step: undefined, tolerance_plus: undefined, tolerance_minus: undefined, reference_value: undefined };
     showDefForm = false;
   }
 
@@ -114,8 +110,6 @@
         name: newTargetName,
         data_type: "number",
         unit: newTargetUnit || null,
-        default_value: null,
-        options: null,
         meta: null,
         derived: true,
       };
@@ -169,9 +163,9 @@
   }
 
   function catLab(c: keyof PlanDefinitions) { return { input_conditions: "Input Conditions", collection_items: "Measurement Items", completion_criteria: "Completion Criteria", custom: "Custom" }[c]; }
-  function tLab(t: string) { return { text: "Text", number: "Number", numeric_tolerance: "Numeric ±Tol", percentage: "Percentage", range: "Range", boolean: "Boolean", pass_fail: "Pass/Fail", threshold: "Threshold", measurement: "Measurement", reference_compare: "Ref. Compare", select: "Select" }[t] || t; }
+  function tLab(t: string) { return { text: "Text", number: "Number", select: "Select", bool: "True/False" }[t] || t; }
   function hasC(d: PlanDocument | null) { return !!(d && (d.root.length > 0 || d.definitions.input_conditions.length > 0 || d.templates.length > 0 || d.transforms.length > 0)); }
-  function metaHas(m: PlanFieldDef["meta"]): boolean { return !!(m && (m.tolerance_plus != null || m.tolerance_minus != null || m.reference_value != null || m.range_min != null || m.range_max != null || m.range_step != null)); }
+  function metaHas(m: PlanFieldDef["meta"]): boolean { return !!(m && (m.start != null || m.stop != null || m.step != null || m.options?.length || m.tolerance_plus != null || m.tolerance_minus != null || m.reference_value != null || m.number_kind)); }
 
   function isDerivedDef(doc: PlanDocument | null, defId: string): boolean {
     if (!doc) return false;
@@ -181,16 +175,24 @@
 
   function buildMeta(): PlanFieldDef["meta"] {
     const m = newDefMeta;
-    const has = m.tolerance_plus != null || m.tolerance_minus != null || m.reference_value != null || m.range_min != null || m.range_max != null || m.range_step != null;
-    if (!has) return null;
     const meta: NonNullable<PlanFieldDef["meta"]> = {};
-    if (m.tolerance_plus != null) meta.tolerance_plus = m.tolerance_plus;
-    if (m.tolerance_minus != null) meta.tolerance_minus = m.tolerance_minus;
-    if (m.reference_value != null) meta.reference_value = m.reference_value;
-    if (m.range_min != null) meta.range_min = m.range_min;
-    if (m.range_max != null) meta.range_max = m.range_max;
-    if (m.range_step != null) meta.range_step = m.range_step;
-    return meta;
+    let has = false;
+    if (newDef.data_type === "number" && m.number_kind && m.number_kind !== "plain") {
+      meta.number_kind = m.number_kind as "range" | "deviation" | "percentage";
+      has = true;
+    }
+    if (m.start != null) { meta.start = m.start; has = true; }
+    if (m.stop != null) { meta.stop = m.stop; has = true; }
+    if (m.step != null) { meta.step = m.step; has = true; }
+    if (m.tolerance_plus != null) { meta.tolerance_plus = m.tolerance_plus; has = true; }
+    if (m.tolerance_minus != null) { meta.tolerance_minus = m.tolerance_minus; has = true; }
+    if (m.reference_value != null) { meta.reference_value = m.reference_value; has = true; }
+    const isSelect = newDef.data_type === "select";
+    if (isSelect && newDef.optionsText.trim()) {
+      meta.options = newDef.optionsText.split(/[\n,]/).map(s => s.trim()).filter(Boolean);
+      has = true;
+    }
+    return has ? meta : null;
   }
 </script>
 
@@ -260,7 +262,7 @@
                 <div class="mb-2">
                   <div class="d-flex justify-content-between align-items-center mb-1"><small class="fw-bold text-muted">{catLab(cat)}</small><button class="btn btn-sm btn-link" onclick={() => { defCategory = cat; showDefForm = true; defTabExpanded[cat] = true; }}>+</button></div>
                   {#each doc.definitions[cat] as f (f.id)}
-                    <div class="def-item"><div class="flex-grow-1"><span class="me-1">{f.name}</span><small class="text-muted">({tLab(f.data_type)}{f.unit ? `, ${f.unit}` : ""}{f.options?.length ? `, ${f.options.length}opts` : ""})</small>{#if f.meta?.tolerance_plus != null}<br /><small class="text-muted">±{f.meta.tolerance_plus}{f.meta.tolerance_minus != null ? `/+${f.meta.tolerance_minus}` : ""}</small>{/if}{#if f.meta?.reference_value != null}<br /><small class="text-muted">ref: {f.meta.reference_value}</small>{/if}{#if f.meta?.range_min != null}<br /><small class="text-muted">{f.meta.range_min}→{f.meta.range_max} step {f.meta.range_step}</small>{/if}{#if isDerivedDef(doc, f.id)}<br /><span class="badge bg-secondary">Computed</span>{/if}</div><button class="btn btn-sm btn-close-sm" onclick={() => removeDef(cat, f.id)}>&times;</button></div>
+                    <div class="def-item"><div class="flex-grow-1"><span class="me-1">{f.name}</span><small class="text-muted">({tLab(f.data_type)}{f.meta?.number_kind ? ` · ${f.meta.number_kind}` : ""}{f.unit ? `, ${f.unit}` : ""}{f.meta?.options?.length ? `, ${f.meta.options.length}opts` : ""})</small>{#if f.meta?.tolerance_plus != null}<br /><small class="text-muted">±{f.meta.tolerance_plus}{f.meta.tolerance_minus != null ? `/+${f.meta.tolerance_minus}` : ""}</small>{/if}{#if f.meta?.reference_value != null}<br /><small class="text-muted">ref: {f.meta.reference_value}</small>{/if}{#if f.meta?.start != null}<br /><small class="text-muted">{f.meta.start}→{f.meta.stop} step {f.meta.step}</small>{/if}{#if isDerivedDef(doc, f.id)}<br /><span class="badge bg-secondary">Computed</span>{/if}</div><button class="btn btn-sm btn-close-sm" onclick={() => removeDef(cat, f.id)}>&times;</button></div>
                   {/each}
                   {#if doc.definitions[cat].length === 0}<div class="text-muted" style="font-size:0.8rem">None</div>{/if}
 
@@ -269,57 +271,44 @@
                       <div class="mb-2"><input class="form-control form-control-sm" placeholder="Name" bind:value={newDef.name} /></div>
                       <div class="mb-2">
                         <select class="form-select form-select-sm" bind:value={newDef.data_type}>
-                          {#if cat === "input_conditions"}
-                            <option value="text">Text</option><option value="number">Number</option><option value="numeric_tolerance">Numeric ±Tolerance</option><option value="percentage">Percentage</option><option value="range">Range</option><option value="select">Select</option><option value="boolean">Boolean</option>
-                           {:else if cat === "collection_items"}
-                             <option value="text">Text</option><option value="number">Number</option><option value="pass_fail">Pass/Fail</option>
-                          {:else if cat === "completion_criteria"}
-                            <option value="pass_fail">Pass/Fail</option><option value="threshold">Threshold</option><option value="reference_compare">Reference Compare</option>
-                          {:else if cat === "custom"}
-                            <option value="text">Text</option><option value="number">Number</option><option value="boolean">Boolean</option><option value="pass_fail">Pass/Fail</option>
-                          {/if}
+                          <option value="text">Text</option>
+                          <option value="number">Number</option>
+                          <option value="select">Select</option>
+                          <option value="bool">True/False</option>
                         </select>
                       </div>
 
-                      {#if ["number", "numeric_tolerance", "percentage", "range"].includes(newDef.data_type)}
+                      {#if newDef.data_type === "number"}
                         <div class="mb-2"><input class="form-control form-control-sm" placeholder="Unit" bind:value={newDef.unit} /></div>
-                      {/if}
-
-                      {#if newDef.data_type === "numeric_tolerance"}
-                        <div class="row mb-2">
-                          <div class="col-6"><input type="number" class="form-control form-control-sm" placeholder="Tolerance +" value={newDefMeta.tolerance_plus ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; newDefMeta = { ...newDefMeta, tolerance_plus: v !== "" ? parseNum(v) ?? undefined : undefined }; }} /></div>
-                          <div class="col-6"><input type="number" class="form-control form-control-sm" placeholder="Tolerance -" value={newDefMeta.tolerance_minus ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; newDefMeta = { ...newDefMeta, tolerance_minus: v !== "" ? parseNum(v) ?? undefined : undefined }; }} /></div>
+                        <div class="mb-2">
+                          <select class="form-select form-select-sm" bind:value={newDefMeta.number_kind}>
+                            <option value="plain">Plain number</option>
+                            <option value="range">Range (start→stop)</option>
+                            <option value="deviation">Deviation (± tolerance)</option>
+                            <option value="percentage">Percentage (% of ref)</option>
+                          </select>
                         </div>
-                      {/if}
-
-                      {#if newDef.data_type === "percentage"}
-                        <div class="mb-2"><input type="number" class="form-control form-control-sm" placeholder="Reference Value" value={newDefMeta.reference_value ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; newDefMeta = { ...newDefMeta, reference_value: v !== "" ? parseNum(v) ?? undefined : undefined }; }} /></div>
-                      {/if}
-
-                      {#if newDef.data_type === "range"}
-                        <div class="row mb-2">
-                          <div class="col-4"><input type="number" class="form-control form-control-sm" placeholder="Min" value={newDefMeta.range_min ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; newDefMeta = { ...newDefMeta, range_min: v !== "" ? parseNum(v) ?? undefined : undefined }; }} /></div>
-                          <div class="col-4"><input type="number" class="form-control form-control-sm" placeholder="Max" value={newDefMeta.range_max ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; newDefMeta = { ...newDefMeta, range_max: v !== "" ? parseNum(v) ?? undefined : undefined }; }} /></div>
-                          <div class="col-4"><input type="number" class="form-control form-control-sm" placeholder="Step" value={newDefMeta.range_step ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; newDefMeta = { ...newDefMeta, range_step: v !== "" ? parseNum(v) ?? undefined : undefined }; }} /></div>
-                        </div>
-                      {/if}
-
-                      {#if newDef.data_type === "reference_compare"}
-                        <div class="mb-2"><input type="text" class="form-control form-control-sm" placeholder="Reference Standard Value" value={newDef.default_value ?? ""} oninput={(e) => newDef.default_value = (e.target as HTMLInputElement).value || null} /></div>
+                        {#if newDefMeta.number_kind === "range"}
+                          <div class="row mb-2">
+                            <div class="col-4"><input type="number" class="form-control form-control-sm" placeholder="Start" value={newDefMeta.start ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; newDefMeta = { ...newDefMeta, start: v !== "" ? parseNum(v) ?? undefined : undefined }; }} /></div>
+                            <div class="col-4"><input type="number" class="form-control form-control-sm" placeholder="Stop" value={newDefMeta.stop ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; newDefMeta = { ...newDefMeta, stop: v !== "" ? parseNum(v) ?? undefined : undefined }; }} /></div>
+                            <div class="col-4"><input type="number" class="form-control form-control-sm" placeholder="Step" value={newDefMeta.step ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; newDefMeta = { ...newDefMeta, step: v !== "" ? parseNum(v) ?? undefined : undefined }; }} /></div>
+                          </div>
+                        {:else if newDefMeta.number_kind === "deviation"}
+                          <div class="row mb-2">
+                            <div class="col-6"><input type="number" class="form-control form-control-sm" placeholder="Tolerance +" value={newDefMeta.tolerance_plus ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; newDefMeta = { ...newDefMeta, tolerance_plus: v !== "" ? parseNum(v) ?? undefined : undefined }; }} /></div>
+                            <div class="col-6"><input type="number" class="form-control form-control-sm" placeholder="Tolerance -" value={newDefMeta.tolerance_minus ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; newDefMeta = { ...newDefMeta, tolerance_minus: v !== "" ? parseNum(v) ?? undefined : undefined }; }} /></div>
+                          </div>
+                        {:else if newDefMeta.number_kind === "percentage"}
+                          <div class="mb-2"><input type="number" class="form-control form-control-sm" placeholder="Reference Value" value={newDefMeta.reference_value ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; newDefMeta = { ...newDefMeta, reference_value: v !== "" ? parseNum(v) ?? undefined : undefined }; }} /></div>
+                        {/if}
                       {/if}
 
                       {#if newDef.data_type === "select"}
                         <div class="mb-2"><textarea class="form-control form-control-sm" rows="2" placeholder="Options (one per line or comma-separated)" bind:value={newDef.optionsText}></textarea></div>
                       {/if}
 
-                      {#if defCategory === "input_conditions" || defCategory === "custom"}
-                      <div class="mb-2">
-                        <small class="text-muted">Default Value</small>
-                        <input type={newDef.data_type === "number" || newDef.data_type === "range" || newDef.data_type === "numeric_tolerance" || newDef.data_type === "percentage" ? "number" : "text"} class="form-control form-control-sm" placeholder="Default value" value={newDef.default_value ?? ""} oninput={(e) => newDef.default_value = (e.target as HTMLInputElement).value || null} />
-                      </div>
-                      {/if}
-
-                      <div><button class="btn btn-sm btn-primary me-1" onclick={addNewDef}>Add</button><button class="btn btn-sm btn-secondary" onclick={() => { showDefForm = false; newDefMeta = { tolerance_plus: undefined, tolerance_minus: undefined, reference_value: undefined, range_min: undefined, range_max: undefined, range_step: undefined }; }}>Cancel</button></div>
+                      <div><button class="btn btn-sm btn-primary me-1" onclick={addNewDef}>Add</button><button class="btn btn-sm btn-secondary" onclick={() => { showDefForm = false; newDefMeta = { number_kind: "plain", start: undefined, stop: undefined, step: undefined, tolerance_plus: undefined, tolerance_minus: undefined, reference_value: undefined }; }}>Cancel</button></div>
                     </div>
                   {/if}
                 </div>
@@ -402,7 +391,7 @@
                       <div class="mb-2">
                         <label class="form-label small mb-0">{p.label}</label>
                         {#if p.type === "text"}
-                            <textarea class="form-control form-control-sm" rows="3" style="font-family:monospace;font-size:0.75rem" value={String(newTransform.params[p.key] ?? "")} oninput={(e) => { newTransform.params = { ...newTransform.params, [p.key]: (e.target as HTMLTextAreaElement).value }; }} placeholder={'e.g. expression: V * I / 1000, variables: {V: def_id}'}></textarea>
+                            <textarea class="form-control form-control-sm" rows="3" style="font-family:monospace;font-size:0.75rem" value={String(newTransform.params[p.key] ?? "")} oninput={(e) => { newTransform.params = { ...newTransform.params, [p.key]: (e.target as HTMLTextAreaElement).value }; }} placeholder={''}></textarea>
                         {:else if p.type === "number"}
                           <input type="number" class="form-control form-control-sm" value={newTransform.params[p.key] ?? ""} oninput={(e) => { newTransform.params = { ...newTransform.params, [p.key]: (e.target as HTMLInputElement).value }; }} />
                         {:else if p.type === "select" && p.options}

@@ -314,8 +314,6 @@ class PlanFieldDef(BaseModel):
     name: str
     data_type: str
     unit: str | None = None
-    default_value: Any | None = None
-    options: list[str] | None = None
     meta: dict[str, Any] | None = None
     derived: bool = False
 
@@ -332,8 +330,6 @@ class FieldBinding(BaseModel):
     value: Any | None = None
     dynamic_type: str | None = None
     dynamic_params: dict[str, Any] | None = None
-    operator: str | None = None
-    target_value: Any | None = None
 
 
 class PlanNode(BaseModel):

@@ -267,9 +267,7 @@ export function readJSONFile(file: File): Promise<PlanDocument> {
 export function definitionsToFieldBindings(defs: PlanFieldDef[]): FieldBinding[] {
   return defs.map((d) => ({
     definition_id: d.id,
-    value: d.default_value ?? null,
-    operator: d.data_type === "threshold" ? "<=" : null,
-    target_value: null,
+    value: null,
   }));
 }
 

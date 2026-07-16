@@ -93,22 +93,22 @@
   }
 
   function defSummary(f: PlanFieldDef): string {
-    if (f.data_type === "threshold") return "Threshold";
-    if (f.data_type === "pass_fail") return "Pass / Fail";
-    if (f.data_type === "reference_compare") return `Ref: ${f.default_value ?? "—"}${f.unit ? ` ${f.unit}` : ""}`;
-    if (f.data_type === "boolean") return "True / False";
-    if (f.data_type === "select") return `Options: ${(f.options ?? []).join(", ") || "—"}`;
-    if (f.data_type === "numeric_tolerance") return `Numeric ±${f.meta?.tolerance_plus ?? "?"}${f.unit ? ` ${f.unit}` : ""}`;
-    if (f.data_type === "percentage") return `Percentage${f.meta?.reference_value != null ? ` (ref: ${f.meta.reference_value})` : ""}`;
-    if (f.data_type === "range") return `Range ${f.meta?.range_min ?? 0}→${f.meta?.range_max ?? 0}${f.unit ? ` ${f.unit}` : ""}`;
-    if (f.data_type === "measurement") return "Measurement";
-    if (f.data_type === "number") return `Number${f.unit ? ` (${f.unit})` : ""}`;
+    if (f.data_type === "bool") return "Pass / Fail";
+    if (f.data_type === "select") return `Options: ${(f.meta?.options ?? []).join(", ") || "—"}`;
+    if (f.data_type === "number") {
+      const parts: string[] = [];
+      if (f.unit) parts.push(f.unit);
+      if (f.meta?.tolerance_plus != null) parts.push(`±${f.meta.tolerance_plus}`);
+      if (f.meta?.reference_value != null) parts.push(`ref: ${f.meta.reference_value}`);
+      if (f.meta?.start != null) parts.push(`[${f.meta.start}→${f.meta.stop}]`);
+      return `Number${parts.length ? ` (${parts.join(", ")})` : ""}`;
+    }
     if (f.data_type === "text") return "Text";
     return f.data_type;
   }
 
   function addBinding(cat: "input_conditions" | "collection_items" | "completion_criteria", defId: string) {
-    onupdate({ [cat]: [...node[cat], { definition_id: defId, value: null, operator: null, target_value: null }] });
+    onupdate({ [cat]: [...node[cat], { definition_id: defId, value: null }] });
   }
 
   function removeBinding(cat: "input_conditions" | "collection_items" | "completion_criteria", defId: string) {
@@ -228,44 +228,36 @@
                           <div class="text-muted small mb-1">
                             Computed via {derivedXforms.map(t => t.derived_name || defName(t.derived_definition_id)).join(", ")}
                           </div>
-                        {:else if f.data_type === "boolean" || f.data_type === "pass_fail"}
+                        {:else if f.data_type === "bool"}
                           <select class="form-select form-select-sm" value={String(binding.value ?? "")} onchange={(e) => { const v = (e.target as HTMLSelectElement).value; updateBinding(cat, f.id, { value: v === "true" ? true : v === "false" ? false : null }); }}>
                             <option value="">--</option>
                             <option value="true">Pass / True</option>
                             <option value="false">Fail / False</option>
                           </select>
-                        {:else if f.data_type === "select" && f.options}
+                        {:else if f.data_type === "select" && f.meta?.options}
                           <select class="form-select form-select-sm" value={String(binding.value ?? "")} onchange={(e) => { const v = (e.target as HTMLSelectElement).value; updateBinding(cat, f.id, { value: v || null }); }}>
                             <option value="">--</option>
-                            {#each f.options as opt}
+                            {#each f.meta.options as opt}
                               <option value={opt}>{opt}</option>
                             {/each}
                           </select>
-                        {:else if f.data_type === "threshold"}
-                          <div class="input-group input-group-sm">
-                            <select class="form-select form-select-sm flex-shrink-1" value={binding.operator ?? "<="} onchange={(e) => updateBinding(cat, f.id, { operator: (e.target as HTMLSelectElement).value })} style="width:60px">
-                              <option value="<=">&le;</option><option value=">=">&ge;</option><option value="==">=</option><option value="<">&lt;</option><option value=">">&gt;</option>
-                            </select>
-                            <input type="number" class="form-control form-control-sm" value={binding.target_value ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; updateBinding(cat, f.id, { target_value: v !== "" ? parseNum(v) : null }); }} placeholder="Target" />
-                          </div>
-                        {:else if f.data_type === "numeric_tolerance"}
+                        {:else if f.data_type === "number"}
                           <div class="d-flex gap-1 align-items-center">
                             <input type="number" class="form-control form-control-sm" value={binding.value ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; updateBinding(cat, f.id, { value: v !== "" ? parseNum(v) : null }); }} placeholder="Value" />
                             {#if f.meta?.tolerance_plus != null}<small class="text-muted text-nowrap">±{f.meta.tolerance_plus}{f.meta.tolerance_minus != null ? `/${f.meta.tolerance_minus}` : ""}{f.unit ? ` ${f.unit}` : ""}</small>{/if}
-                          </div>
-                        {:else if f.data_type === "percentage"}
-                          <div class="d-flex gap-1 align-items-center">
-                            <input type="number" class="form-control form-control-sm" value={binding.value ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; updateBinding(cat, f.id, { value: v !== "" ? parseNum(v) : null }); }} placeholder="Value" />
-                            <small class="text-muted text-nowrap">% {f.unit ?? ""}{#if f.meta?.reference_value != null} (ref: {f.meta.reference_value}){/if}</small>
-                          </div>
-                        {:else if f.data_type === "range"}
-                          <div class="d-flex gap-1 align-items-center">
-                            <input type="number" class="form-control form-control-sm" min={f.meta?.range_min ?? undefined} max={f.meta?.range_max ?? undefined} step={f.meta?.range_step ?? undefined} value={binding.value ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; updateBinding(cat, f.id, { value: v !== "" ? parseNum(v) : null }); }} placeholder="Value" />
-                            {#if f.meta?.range_min != null}<small class="text-muted text-nowrap">{f.meta.range_min}→{f.meta.range_max} step {f.meta.range_step}{f.unit ? ` ${f.unit}` : ""}</small>{/if}
+                            {#if f.meta?.reference_value != null}<small class="text-muted text-nowrap">ref: {f.meta.reference_value}{f.unit ? ` ${f.unit}` : ""}</small>{/if}
+                            {#if f.meta?.start != null}<small class="text-muted text-nowrap">{f.meta.start}→{f.meta.stop} step {f.meta.step}{f.unit ? ` ${f.unit}` : ""}</small>{/if}
+                            <button class="btn btn-sm btn-outline-info" class:active={isDynamic} onclick={() => {
+                              if (isDynamic) {
+                                updateBinding(cat, f.id, { dynamic_type: undefined, dynamic_params: undefined });
+                              } else {
+                                updateBinding(cat, f.id, { dynamic_type: "constant", dynamic_params: {} });
+                              }
+                            }} title="Toggle dynamic input">Dyn</button>
                           </div>
                         {:else}
                           <div class="d-flex gap-1">
-                            <input type="number" class="form-control form-control-sm" value={binding.value ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; updateBinding(cat, f.id, { value: v !== "" ? parseNum(v) : null }); }} placeholder="Value" />
+                            <input type="text" class="form-control form-control-sm" value={binding.value ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; updateBinding(cat, f.id, { value: v || null }); }} placeholder="Value" />
                             <button class="btn btn-sm btn-outline-info" class:active={isDynamic} onclick={() => {
                               if (isDynamic) {
                                 updateBinding(cat, f.id, { dynamic_type: undefined, dynamic_params: undefined });

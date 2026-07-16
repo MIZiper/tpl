@@ -108,7 +108,7 @@ async def initialize_plan(db: Connection, project_id: str) -> PlanDocument:
             input_conditions: list[FieldBinding] = []
             for p in (s["input_params_template"] or []):
                 fid = _ensure_def(defs, "input_conditions", p)
-                input_conditions.append(FieldBinding(definition_id=fid, value=p.get("default_value")))
+                input_conditions.append(FieldBinding(definition_id=fid))
 
             collection_items: list[FieldBinding] = []
             for d in (s["data_to_collect"] or []):
@@ -161,12 +161,16 @@ def _ensure_def(defs: PlanDefinitions, category: str, item: dict) -> str:
             return existing.id
     from uuid import uuid4
     fid = str(uuid4())
+    data_type = item.get("data_type", item.get("type", "text"))
+    meta: dict[str, Any] = {}
+    if (opts := item.get("options")) and isinstance(opts, list):
+        meta["options"] = opts
     field_def = PlanFieldDef(
         id=fid,
         name=name or "Unnamed",
-        data_type=item.get("data_type", item.get("type", "text")),
-        unit=item.get("unit", item.get("unit", None)),
-        default_value=item.get("default_value"),
+        data_type=data_type,
+        unit=item.get("unit"),
+        meta=meta if meta else None,
     )
     setattr(defs, category, [*attr, field_def])
     return fid

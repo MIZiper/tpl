@@ -1,19 +1,19 @@
 export interface PlanFieldDefMeta {
+  number_kind?: "range" | "deviation" | "percentage";
+  start?: number;
+  stop?: number;
+  step?: number;
+  options?: string[];
   tolerance_plus?: number;
   tolerance_minus?: number;
   reference_value?: number;
-  range_min?: number;
-  range_max?: number;
-  range_step?: number;
 }
 
 export interface PlanFieldDef {
   id: string;
   name: string;
-  data_type: string;
+  data_type: "number" | "text" | "select" | "bool";
   unit: string | null;
-  default_value: unknown;
-  options: string[] | null;
   meta: PlanFieldDefMeta | null;
   derived?: boolean;
 }
@@ -30,8 +30,6 @@ export interface FieldBinding {
   value: unknown;
   dynamic_type?: string;
   dynamic_params?: Record<string, unknown>;
-  operator: string | null;
-  target_value: unknown;
 }
 
 export interface PlanNode {
