@@ -31,142 +31,24 @@ class Document(DocumentBase):
 
 # ---------------------------------------------------------------------------
 # Plan Document model
+#
+# The plan document is fully generic: behavior lives in frontend code classes
+# (field types, value types, struct types, transforms); the JSONB stores only
+# instance data referencing those classes by id. The backend is pass-through.
 # ---------------------------------------------------------------------------
-class PlanFieldDef(BaseModel):
-    id: str
-    name: str
-    data_type: str
-    unit: str | None = None
-    meta: dict[str, Any] | None = None
-    derived: bool = False
-
-
-class PlanDefinitions(BaseModel):
-    input_conditions: list[PlanFieldDef] = Field(default_factory=list)
-    collection_items: list[PlanFieldDef] = Field(default_factory=list)
-    completion_criteria: list[PlanFieldDef] = Field(default_factory=list)
-    custom: list[PlanFieldDef] = Field(default_factory=list)
-
-
-class FieldBinding(BaseModel):
-    definition_id: str
-    value: Any | None = None
-    value_type: str | None = None
-    value_params: dict[str, Any] | None = None
-
-
-class PlanNode(BaseModel):
-    id: str
-    type: str
-    title: str
-    children: list["PlanNode"] = Field(default_factory=list)
-    description: str | None = None
-    duration_minutes: int = 60
-    changeover_minutes: int = 0
-    input_conditions: list[FieldBinding] = Field(default_factory=list)
-    collection_items: list[FieldBinding] = Field(default_factory=list)
-    completion_criteria: list[FieldBinding] = Field(default_factory=list)
-    system_config: dict[str, Any] | None = None
-    required_executions: int = 1
-    step_template_id: str | None = None
-    solution_step_id: str | None = None
-
-
-class PlanTemplate(BaseModel):
-    id: str
-    name: str
-    step: PlanNode
-
-
-class TransformParamDef(BaseModel):
-    key: str
-    label: str
-    type: str
-    default: Any | None = None
-    options: list[str] | None = None
-    required: bool = False
-
-
-class TransformInputPortDef(BaseModel):
-    key: str
-    label: str = ""
-    kind: str = "fielddef"
-    data_type: str | None = None
-    struct_type_id: str | None = None
-
-
-class TransformOutputDef(BaseModel):
-    data_type: str = "number"
-
-
-class TransformMethodDef(BaseModel):
-    id: str
-    name: str
-    description: str | None = None
-    category: str | None = None
-    inputs: list[TransformInputPortDef] = Field(default_factory=list)
-    output: TransformOutputDef = Field(default_factory=TransformOutputDef)
-    params_schema: list[TransformParamDef] = Field(default_factory=list)
-    variadic: bool = False
-
-
-class TransformPortBinding(BaseModel):
-    port_key: str
-    definition_id: str
-    sub_key: str | None = None
-
-
-class TransformDef(BaseModel):
-    id: str
-    name: str
-    method_id: str
-    source_ports: list[TransformPortBinding] = Field(default_factory=list)
-    derived_definition_id: str
-    derived_name: str = ""
-    derived_unit: str | None = None
-    params: dict[str, Any] = Field(default_factory=dict)
-
-
-class ValueTypeOutputDef(BaseModel):
-    key: str
-    label: str = ""
-    data_type: str | None = None
-
-
-class ValueTypeDef(BaseModel):
-    id: str
-    name: str
-    description: str | None = None
-    params_schema: list[TransformParamDef] = Field(default_factory=list)
-    outputs: list[ValueTypeOutputDef] = Field(default_factory=list)
-
-
-class StructParamDef(BaseModel):
-    key: str
-    label: str
-    type: str
-    default: Any | None = None
-    options: list[str] | None = None
-    required: bool = False
-
-
-class StructTypeDef(BaseModel):
-    id: str
-    name: str
-    description: str | None = None
-    category: str | None = None
-    params_schema: list[StructParamDef] = Field(default_factory=list)
-
-
 class PlanDocument(BaseModel):
     version: int = 1
-    definitions: PlanDefinitions = Field(default_factory=PlanDefinitions)
-    root: list[PlanNode] = Field(default_factory=list)
-    templates: list[PlanTemplate] = Field(default_factory=list)
-    transforms: list[TransformDef] = Field(default_factory=list)
-    value_types: list[ValueTypeDef] = Field(default_factory=list)
-    transform_methods: list[TransformMethodDef] = Field(default_factory=list)
-    struct_types: list[StructTypeDef] = Field(default_factory=list)
+    definitions: dict[str, Any] = Field(
+        default_factory=lambda: {
+            "input_conditions": [],
+            "collection_items": [],
+            "completion_criteria": [],
+            "custom": [],
+        }
+    )
+    root: list[Any] = Field(default_factory=list)
+    templates: list[Any] = Field(default_factory=list)
+    transforms: list[Any] = Field(default_factory=list)
 
 
 class PlanDocumentUpdate(BaseModel):

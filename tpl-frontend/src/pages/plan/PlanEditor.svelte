@@ -23,11 +23,18 @@
     importJSON,
   } from "../../stores/plan";
   import { planApi } from "../../lib/api";
-  import { getTransformMethods, getTransformMethod } from "../../lib/transform-registry";
-  import { getAllStructTypes } from "../../lib/struct-registry";
-  import { getAllOutputKeys } from "../../lib/value-type-registry";
-  import { generateId, parseNum } from "../../lib/plan-utils";
-  import type { PlanNode, PlanDocument, PlanFieldDef, PlanDefinitions, TransformDef, StructTypeDef, TransformPortBinding } from "../../types/plan";
+  import { getFieldTypes, getFieldType } from "../../lib/fieldtypes";
+  import { getStructTypes, getStructType } from "../../lib/structs";
+  import { getTransforms, getTransform, type PortSpec } from "../../lib/transforms";
+  import { generateId } from "../../lib/plan-utils";
+  import type {
+    PlanNode,
+    PlanDocument,
+    PlanFieldDef,
+    PlanDefinitions,
+    TransformDef,
+    TransformInputBinding,
+  } from "../../types/plan";
   import PlanCanvas from "./PlanCanvas.svelte";
   import PlanStepEditor from "./PlanStepEditor.svelte";
 
@@ -37,25 +44,23 @@
   let contextMenu = $state<{ x: number; y: number; nodeId: string | null; parentId: string | null; index: number } | null>(null);
   let showDefForm = $state(false);
   let defCategory: keyof PlanDefinitions = $state<keyof PlanDefinitions>("input_conditions");
-  let newDef = $state({ name: "", data_type: "text" as PlanFieldDef["data_type"], unit: null as string | null, optionsText: "" });
+  let newDef = $state({ name: "", typeId: "text" as string, unit: null as string | null, optionsText: "" });
   let structTypeId = $state("");
   let structParamValues = $state<Record<string, unknown>>({});
-  let defTabExpanded: Record<string, boolean> = $state({});
   let newTemplateName = $state("");
 
   let showTransformForm = $state(false);
   let editingTransformId = $state<string | null>(null);
   let newTransform = $state({
     name: "",
-    method_id: "formula",
-    source_ports: [] as TransformPortBinding[],
-    derived_definition_id: "",
+    typeId: "linear",
+    inputs: [] as TransformInputBinding[],
+    derivedDefId: "",
     params: {} as Record<string, unknown>,
   });
   let newTargetMode = $state<"new" | "existing">("new");
   let newTargetName = $state("");
   let newTargetUnit = $state("");
-  const outputKeys = $derived(getAllOutputKeys());
 
   onMount(() => { loadDoc(id, planApi.getDocument); });
 
@@ -71,7 +76,7 @@
       case "move-up": moveUp(payload.nodeId); break;
       case "move-down": moveDown(payload.nodeId); break;
       case "save-as-template": {
-        const doc = $planState.document; if (doc) { const n = find(doc.root, payload.nodeId); addTemplate(n?.title || "Template", payload.nodeId); }
+        const doc = $planState.document; if (doc) { addTemplate(find(doc.root, payload.nodeId)?.title || "Template", payload.nodeId); }
       } break;
     }
     if ($planState.dirty) saveDoc(id, planApi.saveDocument);
@@ -89,14 +94,55 @@
     reader.readAsText(file); input.value = "";
   }
 
+  function resetDefForm() {
+    newDef = { name: "", typeId: "text", unit: null, optionsText: "" };
+    structTypeId = ""; structParamValues = {};
+  }
+
   function addNewDef() {
     if (!newDef.name) return;
-    const meta = buildMeta();
-    addDef(defCategory, { name: newDef.name, data_type: newDef.data_type, unit: newDef.unit, meta });
-    newDef = { name: "", data_type: "text", unit: null, optionsText: "" };
-    structTypeId = "";
-    structParamValues = {};
+    const params: Record<string, unknown> = {};
+    if (newDef.typeId === "select" && newDef.optionsText.trim()) {
+      params.options = newDef.optionsText.split(/[\n,]/).map(s => s.trim()).filter(Boolean);
+    }
+    if (newDef.typeId === "struct" && structTypeId) {
+      params.structTypeId = structTypeId;
+      for (const [k, v] of Object.entries(structParamValues)) {
+        if (v !== undefined && v !== "") params[k] = v;
+      }
+    }
+    addDef(defCategory, { typeId: newDef.typeId, name: newDef.name, unit: newDef.unit, params });
+    resetDefForm();
     showDefForm = false;
+  }
+
+  function resetTransformForm() {
+    newTransform = { name: "", typeId: "linear", inputs: [], derivedDefId: "", params: {} };
+    newTargetMode = "new"; newTargetName = ""; newTargetUnit = "";
+  }
+
+  function onTransformTypeChange(tid: string) {
+    const cls = getTransform(tid);
+    const ports = cls ? cls.inputs() : [];
+    let inputs = newTransform.inputs;
+    if (cls && !ports.some(p => p.variadic)) {
+      inputs = ports.map(p => ({ role: p.role, definitionId: newTransform.inputs.find(i => i.role === p.role)?.definitionId ?? "" }));
+    }
+    newTransform = { ...newTransform, typeId: tid, inputs, params: {} };
+  }
+
+  function updateInput(idx: number, patch: Partial<TransformInputBinding>) {
+    const inputs = [...newTransform.inputs];
+    if (idx >= 0 && idx < inputs.length) inputs[idx] = { ...inputs[idx], ...patch };
+    newTransform = { ...newTransform, inputs };
+  }
+
+  function addInput(role: string) {
+    newTransform = { ...newTransform, inputs: [...newTransform.inputs, { role, definitionId: "" }] };
+  }
+
+  function removeInput(idx: number) {
+    newTransform = { ...newTransform, inputs: newTransform.inputs.filter((_, i) => i !== idx) };
   }
 
   function addTransform() {
@@ -104,42 +150,30 @@
     const doc = $planState.document;
     if (!doc) return;
 
-    let targetDefId = newTransform.derived_definition_id;
-
+    let targetDefId = newTransform.derivedDefId;
     if (newTargetMode === "new" && newTargetName) {
       targetDefId = generateId();
-      const derivedDef: PlanFieldDef = {
-        id: targetDefId,
-        name: newTargetName,
-        data_type: "number",
-        unit: newTargetUnit || null,
-        meta: null,
-        derived: true,
-      };
-      doc.definitions.input_conditions.push(derivedDef);
+      doc.definitions.input_conditions.push({
+        id: targetDefId, typeId: "number", name: newTargetName,
+        unit: newTargetUnit || null, params: {}, derived: true,
+      });
     }
-
     if (!targetDefId) return;
 
-    const xformName = newTransform.name || newTargetName;
     const t: TransformDef = {
       id: generateId(),
-      name: xformName,
-      method_id: newTransform.method_id,
-      source_ports: newTransform.source_ports,
-      derived_definition_id: targetDefId,
-      derived_name: newTargetName || "",
-      derived_unit: newTargetUnit || undefined,
+      name: newTransform.name || newTargetName,
+      typeId: newTransform.typeId,
+      inputs: newTransform.inputs,
+      derivedDefId: targetDefId,
+      derived: { name: newTargetName || "", unit: newTargetUnit || null },
       params: newTransform.params,
     };
     planState.update((s) => {
       if (!s.document) return s;
       return { ...s, document: { ...s.document, transforms: [...s.document.transforms, t] }, dirty: true };
     });
-    newTransform = { name: "", method_id: "formula", source_ports: [], derived_definition_id: "", params: {} };
-    newTargetMode = "new";
-    newTargetName = "";
-    newTargetUnit = "";
+    resetTransformForm();
     showTransformForm = false;
   }
 
@@ -158,39 +192,24 @@
     });
   }
 
-  function updatePort(idx: number, patch: Partial<TransformPortBinding>) {
-    const ports = [...newTransform.source_ports];
-    if (idx >= 0 && idx < ports.length) ports[idx] = { ...ports[idx], ...patch };
-    newTransform = { ...newTransform, source_ports: ports };
-  }
-
-  function addPort() {
-    const n = newTransform.source_ports.length + 1;
-    newTransform = { ...newTransform, source_ports: [...newTransform.source_ports, { port_key: `v${n}`, definition_id: "" }] };
-  }
-
-  function removePort(idx: number) {
-    newTransform = { ...newTransform, source_ports: newTransform.source_ports.filter((_, i) => i !== idx) };
-  }
-
-  function updateTPort(tId: string, portKey: string, patch: Partial<TransformPortBinding>) {
+  function updateTInput(tId: string, role: string, patch: Partial<TransformInputBinding>) {
     planState.update((s) => {
       if (!s.document) return s;
-      return { ...s, document: { ...s.document, transforms: s.document.transforms.map(t => t.id === tId ? { ...t, source_ports: t.source_ports.map(p => p.port_key === portKey ? { ...p, ...patch } : p) } : t) }, dirty: true };
+      return { ...s, document: { ...s.document, transforms: s.document.transforms.map(t => t.id === tId ? { ...t, inputs: t.inputs.map(i => i.role === role ? { ...i, ...patch } : i) } : t) }, dirty: true };
     });
   }
 
-  function addTPort(tId: string) {
+  function addTInput(tId: string, role: string) {
     planState.update((s) => {
       if (!s.document) return s;
-      return { ...s, document: { ...s.document, transforms: s.document.transforms.map(t => t.id === tId ? { ...t, source_ports: [...t.source_ports, { port_key: `v${t.source_ports.length + 1}`, definition_id: "" }] } : t) }, dirty: true };
+      return { ...s, document: { ...s.document, transforms: s.document.transforms.map(t => t.id === tId ? { ...t, inputs: [...t.inputs, { role, definitionId: "" }] } : t) }, dirty: true };
     });
   }
 
-  function removeTPort(tId: string, portKey: string) {
+  function removeTInput(tId: string, role: string) {
     planState.update((s) => {
       if (!s.document) return s;
-      return { ...s, document: { ...s.document, transforms: s.document.transforms.map(t => t.id === tId ? { ...t, source_ports: t.source_ports.filter(p => p.port_key !== portKey) } : t) }, dirty: true };
+      return { ...s, document: { ...s.document, transforms: s.document.transforms.map(t => t.id === tId ? { ...t, inputs: t.inputs.filter(i => i.role !== role) } : t) }, dirty: true };
     });
   }
 
@@ -202,8 +221,7 @@
   }
 
   function catLab(c: keyof PlanDefinitions) { return { input_conditions: "Input Conditions", collection_items: "Measurement Items", completion_criteria: "Completion Criteria", custom: "Custom" }[c]; }
-  function tLab(t: string) { return { text: "Text", number: "Number", select: "Select", bool: "True/False", struct: "Struct" }[t] || t; }
-  function metaHas(m: PlanFieldDef["meta"]): boolean { return !!(m && (m.options?.length || m.struct_type_id)); }
+  function tLab(tid: string): string { return getFieldType(tid)?.displayName ?? tid; }
 
   function isDerivedDef(doc: PlanDocument | null, defId: string): boolean {
     if (!doc) return false;
@@ -211,20 +229,15 @@
     return all.find(d => d.id === defId)?.derived === true;
   }
 
-  function buildMeta(): PlanFieldDef["meta"] {
-    const meta: NonNullable<PlanFieldDef["meta"]> = {};
-    let has = false;
-    const isSelect = newDef.data_type === "select";
-    if (isSelect && newDef.optionsText.trim()) {
-      meta.options = newDef.optionsText.split(/[\n,]/).map(s => s.trim()).filter(Boolean);
-      has = true;
+  function allInputDefs(doc: PlanDocument): PlanFieldDef[] {
+    return [...doc.definitions.input_conditions, ...doc.definitions.custom];
+  }
+
+  function defsForPort(defs: PlanFieldDef[], port: PortSpec): PlanFieldDef[] {
+    if (port.kind === "struct") {
+      return defs.filter(d => d.typeId === "struct" && (d.params.structTypeId === port.structType || !port.structType));
     }
-    if (newDef.data_type === "struct" && structTypeId) {
-      meta.struct_type_id = structTypeId;
-      meta.struct_params = Object.keys(structParamValues).length > 0 ? { ...structParamValues } : {};
-      has = true;
-    }
-    return has ? meta : null;
+    return defs.filter(d => d.typeId === port.fieldType || !port.fieldType);
   }
 </script>
 
@@ -289,9 +302,19 @@
             <div class="p-2">
               {#each (["input_conditions", "collection_items", "completion_criteria", "custom"] as const) as cat}
                 <div class="mb-2">
-                  <div class="d-flex justify-content-between align-items-center mb-1"><small class="fw-bold text-muted">{catLab(cat)}</small><button class="btn btn-sm btn-link" onclick={() => { defCategory = cat; showDefForm = true; defTabExpanded[cat] = true; }}>+</button></div>
+                  <div class="d-flex justify-content-between align-items-center mb-1"><small class="fw-bold text-muted">{catLab(cat)}</small><button class="btn btn-sm btn-link" onclick={() => { defCategory = cat; showDefForm = true; }}>+</button></div>
                   {#each doc.definitions[cat] as f (f.id)}
-                    <div class="def-item"><div class="flex-grow-1"><span class="me-1">{f.name}</span><small class="text-muted">({tLab(f.data_type)}{f.meta?.struct_type_id ? ` · ${f.meta.struct_type_id}` : ""}{f.unit ? `, ${f.unit}` : ""}{f.meta?.options?.length ? `, ${f.meta.options.length}opts` : ""})</small>{#if f.meta?.struct_type_id}<br /><small class="text-muted">{JSON.stringify(f.meta.struct_params ?? {})}</small>{/if}{#if isDerivedDef(doc, f.id)}<br /><span class="badge bg-secondary">Computed</span>{/if}</div><button class="btn btn-sm btn-close-sm" onclick={() => removeDef(cat, f.id)}>&times;</button></div>
+                    <div class="def-item">
+                      <div class="flex-grow-1">
+                        <span class="me-1">{f.name}</span>
+                        <small class="text-muted">({tLab(f.typeId)}{f.typeId === "struct" ? ` · ${String(f.params.structTypeId ?? "?")}` : ""}{f.unit ? `, ${f.unit}` : ""}{f.typeId === "select" ? `, ${(f.params.options as string[] | undefined)?.length ?? 0}opts` : ""})</small>
+                        {#if f.typeId === "struct" && f.params.structTypeId}
+                          <br /><small class="text-muted">{JSON.stringify(Object.fromEntries(Object.entries(f.params).filter(([k]) => k !== "structTypeId")))}</small>
+                        {/if}
+                        {#if isDerivedDef(doc, f.id)}<br /><span class="badge bg-secondary">Computed</span>{/if}
+                      </div>
+                      <button class="btn btn-sm btn-close-sm" onclick={() => removeDef(cat, f.id)}>&times;</button>
+                    </div>
                   {/each}
                   {#if doc.definitions[cat].length === 0}<div class="text-muted" style="font-size:0.8rem">None</div>{/if}
 
@@ -299,44 +322,45 @@
                     <div class="card card-body mb-2 bg-light">
                       <div class="mb-2"><input class="form-control form-control-sm" placeholder="Name" bind:value={newDef.name} /></div>
                       <div class="mb-2">
-                        <select class="form-select form-select-sm" bind:value={newDef.data_type}>
-                          <option value="text">Text</option>
-                          <option value="number">Number</option>
-                          <option value="select">Select</option>
-                          <option value="bool">True/False</option>
-                          {#if cat === "custom"}
-                            <option value="struct">Struct</option>
-                          {/if}
+                        <select class="form-select form-select-sm" bind:value={newDef.typeId}>
+                          {#each getFieldTypes() as ft (ft.typeId)}
+                            <option value={ft.typeId}>{ft.displayName}</option>
+                          {/each}
                         </select>
                       </div>
+                      <div class="mb-2"><input class="form-control form-control-sm" placeholder="Unit" bind:value={newDef.unit} /></div>
 
-                      {#if newDef.data_type === "struct" && cat === "custom"}
-                        {@const allStructTypes = getAllStructTypes()}
+                      {#if newDef.typeId === "select"}
+                        <div class="mb-2"><textarea class="form-control form-control-sm" rows="2" placeholder="Options (one per line or comma-separated)" bind:value={newDef.optionsText}></textarea></div>
+                      {/if}
+
+                      {#if newDef.typeId === "struct"}
+                        {@const structTypes = getStructTypes()}
                         <div class="mb-2">
-                          <select class="form-select form-select-sm" bind:value={structTypeId} onchange={(e) => { structTypeId = (e.target as HTMLSelectElement).value; structParamValues = {}; }}>
+                          <select class="form-select form-select-sm" bind:value={structTypeId} onchange={() => { structParamValues = {}; }}>
                             <option value="">-- select struct type --</option>
-                            {#each allStructTypes as st}
-                              <option value={st.id}>{st.name}</option>
+                            {#each structTypes as st (st.typeId)}
+                              <option value={st.typeId}>{st.displayName}</option>
                             {/each}
                           </select>
                         </div>
                         {#if structTypeId}
-                          {@const selStruct = allStructTypes.find(st => st.id === structTypeId)}
-                          {#if selStruct?.params_schema}
+                          {@const st = getStructType(structTypeId)}
+                          {#if st?.fieldsSchema?.length}
                             <div class="mb-2">
-                              <small class="fw-bold text-muted d-block">{selStruct.name} parameters</small>
-                              {#each selStruct.params_schema as p (p.key)}
+                              <small class="fw-bold text-muted d-block">{st.displayName} fields</small>
+                              {#each st.fieldsSchema as f (f.key)}
                                 <div class="mb-1">
-                                  <label class="form-label small mb-0">{p.label}</label>
-                                  {#if p.type === "number"}
-                                    <input type="number" class="form-control form-control-sm" value={structParamValues[p.key] ?? p.default ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; structParamValues = { ...structParamValues, [p.key]: v !== "" ? parseNum(v) : undefined }; }} step="any" />
-                                  {:else if p.type === "select" && p.options}
-                                    <select class="form-select form-select-sm" value={String(structParamValues[p.key] ?? p.default ?? "")} onchange={(e) => { structParamValues = { ...structParamValues, [p.key]: (e.target as HTMLSelectElement).value }; }}>
+                                  <label class="form-label small mb-0">{f.label}</label>
+                                  {#if f.dataType === "number"}
+                                    <input type="number" class="form-control form-control-sm" value={structParamValues[f.key] ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; structParamValues = { ...structParamValues, [f.key]: v !== "" ? Number(v) : undefined }; }} step="any" />
+                                  {:else if f.dataType === "select" && f.options}
+                                    <select class="form-select form-select-sm" value={String(structParamValues[f.key] ?? "")} onchange={(e) => { structParamValues = { ...structParamValues, [f.key]: (e.target as HTMLSelectElement).value }; }}>
                                       <option value="">--</option>
-                                      {#each p.options as opt}<option value={opt}>{opt}</option>{/each}
+                                      {#each f.options as opt}<option value={opt}>{opt}</option>{/each}
                                     </select>
                                   {:else}
-                                    <input type="text" class="form-control form-control-sm" value={structParamValues[p.key] ?? p.default ?? ""} oninput={(e) => { structParamValues = { ...structParamValues, [p.key]: (e.target as HTMLInputElement).value }; }} />
+                                    <input type="text" class="form-control form-control-sm" value={structParamValues[f.key] ?? ""} oninput={(e) => { structParamValues = { ...structParamValues, [f.key]: (e.target as HTMLInputElement).value }; }} />
                                   {/if}
                                 </div>
                               {/each}
@@ -345,16 +369,7 @@
                         {/if}
                       {/if}
 
-                      {#if newDef.data_type === "number"}
-                        <div class="mb-2"><input class="form-control form-control-sm" placeholder="Unit" bind:value={newDef.unit} /></div>
-                        <small class="text-muted d-block mb-2">Numeric shape (range / deviation / percentage / waveform) is set per binding, not on the definition.</small>
-                      {/if}
-
-                      {#if newDef.data_type === "select"}
-                        <div class="mb-2"><textarea class="form-control form-control-sm" rows="2" placeholder="Options (one per line or comma-separated)" bind:value={newDef.optionsText}></textarea></div>
-                      {/if}
-
-                      <div><button class="btn btn-sm btn-primary me-1" onclick={addNewDef}>Add</button><button class="btn btn-sm btn-secondary" onclick={() => { showDefForm = false; structTypeId = ""; structParamValues = {}; }}>Cancel</button></div>
+                      <div><button class="btn btn-sm btn-primary me-1" onclick={addNewDef}>Add</button><button class="btn btn-sm btn-secondary" onclick={() => { showDefForm = false; resetDefForm(); }}>Cancel</button></div>
                     </div>
                   {/if}
                 </div>
@@ -372,13 +387,10 @@
               {#if doc.templates.length === 0}
                 <div class="text-muted" style="font-size:0.8rem">Select a step then save as template.</div>
               {/if}
-              {#if !selId || selNode?.type === "step"}
-                <div class="text-muted mt-1" style="font-size:0.75rem">Select a group to apply templates.</div>
-              {/if}
             </div>
           {:else if leftTab === "transforms"}
-            {@const allInputDefs = [...doc.definitions.input_conditions, ...doc.definitions.custom]}
-            {@const xformMethods = getTransformMethods()}
+            {@const inputDefs = allInputDefs(doc)}
+            {@const transforms = getTransforms()}
             <div class="p-2">
               <div class="d-flex justify-content-between align-items-center mb-2">
                 <small class="fw-bold text-muted">TRANSFORMS</small>
@@ -386,65 +398,57 @@
               </div>
 
               {#if showTransformForm}
+                {@const selTransform = getTransform(newTransform.typeId)}
+                {@const ports = selTransform?.inputs() ?? []}
+                {@const variadic = ports.some(p => p.variadic)}
                 <div class="card card-body mb-2 bg-light">
                   <div class="mb-2"><input class="form-control form-control-sm" placeholder="Name" bind:value={newTransform.name} /></div>
                   <div class="mb-2">
-                    <select class="form-select form-select-sm" bind:value={newTransform.method_id}>
-                      {#each xformMethods as m}
-                        <option value={m.id}>{m.name}</option>
+                    <select class="form-select form-select-sm" value={newTransform.typeId} onchange={(e) => onTransformTypeChange((e.target as HTMLSelectElement).value)}>
+                      {#each transforms as tf (tf.typeId)}
+                        <option value={tf.typeId}>{tf.displayName}</option>
                       {/each}
                     </select>
                   </div>
+
                   <div class="mb-2">
                     <small class="text-muted d-block mb-1">Inputs</small>
-                    {#each xformMethods.filter(m => m.id === newTransform.method_id) as selMethod}
-                      {#if selMethod.variadic}
-                        {#each newTransform.source_ports as port, i (port.port_key)}
-                          <div class="d-flex gap-1 mb-1">
-                            <input class="form-control form-control-sm" style="max-width:90px" placeholder="var" value={port.port_key} oninput={(e) => { const v = (e.target as HTMLInputElement).value; updatePort(i, { port_key: v || `v${i+1}` }); }} />
-                            <select class="form-select form-select-sm" value={port.definition_id} onchange={(e) => updatePort(i, { definition_id: (e.target as HTMLSelectElement).value })}>
-                              <option value="">-- select definition --</option>
-                              {#each allInputDefs as d (d.id)}
-                                <option value={d.id}>{d.name}{d.unit ? ` (${d.unit})` : ""}{isDerivedDef(doc, d.id) ? " [computed]" : ""}</option>
-                              {/each}
-                            </select>
-                            <button class="btn btn-sm btn-close-sm" onclick={() => removePort(i)}>&times;</button>
-                          </div>
-                        {/each}
-                        <button class="btn btn-sm btn-outline-secondary" onclick={addPort}>+ variable</button>
-                      {:else}
-                        {#each selMethod.inputs as inp (inp.key)}
-                          {@const port = newTransform.source_ports.find(p => p.port_key === inp.key)}
-                          {@const idx = newTransform.source_ports.findIndex(p => p.port_key === inp.key)}
-                          {@const bindDef = allInputDefs.find(d => d.id === port?.definition_id)}
-                          <div class="mb-1">
-                            <label class="form-label small mb-0">{inp.label} <small class="text-muted">({inp.kind}{inp.data_type ? ` ${inp.data_type}` : ""}{inp.struct_type_id ? `:${inp.struct_type_id}` : ""})</small></label>
-                            {#if allInputDefs.length > 0}
-                              <div class="d-flex gap-1">
-                                <select class="form-select form-select-sm" value={port?.definition_id ?? ""} onchange={(e) => { const v = (e.target as HTMLSelectElement).value; if (idx >= 0) updatePort(idx, { definition_id: v }); else newTransform = { ...newTransform, source_ports: [...newTransform.source_ports, { port_key: inp.key, definition_id: v }] }; }}>
-                                  <option value="">-- select --</option>
-                                  {#each allInputDefs as d (d.id)}
-                                    <option value={d.id}>{d.name}{d.unit ? ` (${d.unit})` : ""}{d.data_type === "struct" ? ` [${d.meta?.struct_type_id ?? "struct"}]` : ""}{isDerivedDef(doc, d.id) ? " [computed]" : ""}</option>
-                                  {/each}
-                                </select>
-                                {#if inp.data_type === "number" && bindDef}
-                                  <select class="form-select form-select-sm" style="max-width:130px" value={port?.sub_key ?? "value"} onchange={(e) => { const v = (e.target as HTMLSelectElement).value; if (idx >= 0) updatePort(idx, { sub_key: v }); }}>
-                                    {#each outputKeys as ok (ok)}
-                                      <option value={ok}>{ok}</option>
-                                    {/each}
-                                  </select>
-                                {/if}
-                              </div>
-                            {:else}
-                              <small class="text-muted d-block mt-1">No input definitions available. Add some in the Defs tab first.</small>
-                            {/if}
-                          </div>
-                        {/each}
-                      {/if}
-                    {/each}
+                    {#if variadic}
+                      {#each newTransform.inputs as inp, i (i)}
+                        <div class="d-flex gap-1 mb-1">
+                          <input class="form-control form-control-sm" style="max-width:90px" placeholder="var" value={inp.role} oninput={(e) => { const v = (e.target as HTMLInputElement).value; updateInput(i, { role: v || `v${i+1}` }); }} />
+                          <select class="form-select form-select-sm" value={inp.definitionId} onchange={(e) => updateInput(i, { definitionId: (e.target as HTMLSelectElement).value })}>
+                            <option value="">-- select definition --</option>
+                            {#each inputDefs as d (d.id)}
+                              <option value={d.id}>{d.name}{isDerivedDef(doc, d.id) ? " [computed]" : ""}</option>
+                            {/each}
+                          </select>
+                          <button class="btn btn-sm btn-close-sm" onclick={() => removeInput(i)}>&times;</button>
+                        </div>
+                      {/each}
+                      <button class="btn btn-sm btn-outline-secondary" onclick={() => addInput(`v${newTransform.inputs.length + 1}`)}>+ variable</button>
+                    {:else}
+                      {#each ports as port (port.role)}
+                        {@const candidates = defsForPort(inputDefs, port)}
+                        {@const inp = newTransform.inputs.find(i => i.role === port.role)}
+                        <div class="mb-1">
+                          <label class="form-label small mb-0">{port.label} <small class="text-muted">({port.kind}{port.fieldType ? ` ${port.fieldType}` : ""}{port.structType ? `:${port.structType}` : ""})</small></label>
+                          <select class="form-select form-select-sm" value={inp?.definitionId ?? ""} onchange={(e) => updateInput(newTransform.inputs.findIndex(i => i.role === port.role), { definitionId: (e.target as HTMLSelectElement).value })}>
+                            <option value="">-- select --</option>
+                            {#each candidates as d (d.id)}
+                              <option value={d.id}>{d.name}{d.unit ? ` (${d.unit})` : ""}{isDerivedDef(doc, d.id) ? " [computed]" : ""}</option>
+                            {/each}
+                          </select>
+                          {#if candidates.length === 0}
+                            <small class="text-muted d-block mt-1">No matching definitions. Add a matching field in the Defs tab.</small>
+                          {/if}
+                        </div>
+                      {/each}
+                    {/if}
                   </div>
+
                   <div class="mb-2">
-                    <small class="text-muted d-block mb-1">Output label &amp; bind</small>
+                    <small class="text-muted d-block mb-1">Output</small>
                     <div class="d-flex gap-1 mb-1">
                       <input class="form-control form-control-sm" placeholder="Derived name" bind:value={newTargetName} />
                       <input class="form-control form-control-sm" placeholder="Unit" style="max-width:80px" bind:value={newTargetUnit} />
@@ -458,129 +462,118 @@
                       <label class="form-check-label small" for="targetExist">Bind to existing</label>
                     </div>
                     {#if newTargetMode === "existing"}
-                      <select class="form-select form-select-sm mt-1" bind:value={newTransform.derived_definition_id}>
+                      <select class="form-select form-select-sm mt-1" bind:value={newTransform.derivedDefId}>
                         <option value="">-- select field --</option>
-                        {#each allInputDefs as d (d.id)}
-                          <option value={d.id}>{d.name}{d.unit ? ` (${d.unit})` : ""}{d.derived ? " [computed]" : ""}</option>
+                        {#each inputDefs as d (d.id)}
+                          <option value={d.id}>{d.name}{d.derived ? " [computed]" : ""}</option>
                         {/each}
                       </select>
                     {/if}
                   </div>
 
-                  {#each xformMethods.filter(m => m.id === newTransform.method_id) as selMethod}
-                    <div class="mb-2"><small class="fw-bold text-muted">{selMethod.name} Parameters</small></div>
-                    {#each selMethod.params_schema as p (p.key)}
+                  {#if selTransform}
+                    <div class="mb-2"><small class="fw-bold text-muted">{selTransform.displayName} Parameters</small></div>
+                    {#each selTransform.paramsSchema as p (p.key)}
                       <div class="mb-2">
                         <label class="form-label small mb-0">{p.label}</label>
                         {#if p.type === "text"}
-                            <textarea class="form-control form-control-sm" rows="3" style="font-family:monospace;font-size:0.75rem" value={String(newTransform.params[p.key] ?? "")} oninput={(e) => { newTransform.params = { ...newTransform.params, [p.key]: (e.target as HTMLTextAreaElement).value }; }} placeholder={''}></textarea>
-                        {:else if p.type === "number"}
-                          <input type="number" class="form-control form-control-sm" value={newTransform.params[p.key] ?? ""} oninput={(e) => { newTransform.params = { ...newTransform.params, [p.key]: (e.target as HTMLInputElement).value }; }} />
+                          <textarea class="form-control form-control-sm" rows="2" style="font-family:monospace;font-size:0.75rem" value={String(newTransform.params[p.key] ?? "")} oninput={(e) => { newTransform.params = { ...newTransform.params, [p.key]: (e.target as HTMLTextAreaElement).value }; }}></textarea>
                         {:else if p.type === "select" && p.options}
-                          <select class="form-select form-select-sm" value={String(newTransform.params[p.key] ?? "")} onchange={(e) => { newTransform.params = { ...newTransform.params, [p.key]: (e.target as HTMLSelectElement).value }; }}>
+                          <select class="form-select form-select-sm" value={String(newTransform.params[p.key] ?? p.default ?? "")} onchange={(e) => { newTransform.params = { ...newTransform.params, [p.key]: (e.target as HTMLSelectElement).value }; }}>
                             {#each p.options as opt}<option value={opt}>{opt}</option>{/each}
                           </select>
                         {:else}
-                          <input type="text" class="form-control form-control-sm" value={String(newTransform.params[p.key] ?? "")} oninput={(e) => { newTransform.params = { ...newTransform.params, [p.key]: (e.target as HTMLInputElement).value }; }} />
+                          <input type="number" class="form-control form-control-sm" value={newTransform.params[p.key] ?? p.default ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; newTransform.params = { ...newTransform.params, [p.key]: v !== "" ? Number(v) : null }; }} step="any" />
                         {/if}
                       </div>
                     {/each}
-                  {/each}
+                  {/if}
 
-                  <div><button class="btn btn-sm btn-primary me-1" onclick={addTransform} disabled={!newTransform.name || (newTargetMode === "existing" && !newTransform.derived_definition_id) || (newTargetMode === "new" && !newTargetName)}>Add</button><button class="btn btn-sm btn-secondary" onclick={() => { showTransformForm = false; newTransform = { name: "", method_id: "formula", source_ports: [], derived_definition_id: "", params: {} }; newTargetMode = "new"; newTargetName = ""; newTargetUnit = ""; }}>Cancel</button></div>
+                  <div><button class="btn btn-sm btn-primary me-1" onclick={addTransform} disabled={!newTransform.name || (newTargetMode === "existing" && !newTransform.derivedDefId) || (newTargetMode === "new" && !newTargetName)}>Add</button><button class="btn btn-sm btn-secondary" onclick={() => { showTransformForm = false; resetTransformForm(); }}>Cancel</button></div>
                 </div>
               {/if}
 
               {#each doc.transforms as t (t.id)}
-                {@const bindDef = [...doc.definitions.input_conditions, ...doc.definitions.custom].find(d => d.id === t.derived_definition_id)}
+                {@const cls = getTransform(t.typeId)}
+                {@const ports = cls?.inputs() ?? []}
+                {@const variadic = ports.some(p => p.variadic)}
+                {@const bindDef = inputDefs.find(d => d.id === t.derivedDefId)}
                 {@const isEditing = editingTransformId === t.id}
-                {@const sourceNames = t.source_ports.map(p => { const d = allInputDefs.find(x => x.id === p.definition_id); return d ? `${d.name}${p.sub_key && p.sub_key !== "value" ? `.${p.sub_key}` : ""}` : p.port_key; }).join(", ") || "?"}
-                {@const outputName = t.derived_name || bindDef?.name || "?"}
+                {@const sourceNames = t.inputs.map(inp => { const d = inputDefs.find(x => x.id === inp.definitionId); return d ? `${d.name}${inp.subKey && inp.subKey !== "value" ? `.${inp.subKey}` : ""}` : inp.role; }).join(", ") || "?"}
+                {@const outputName = t.derived.name || bindDef?.name || "?"}
                 <div class="def-item" onclick={() => editingTransformId = isEditing ? null : t.id} style="cursor:pointer">
                   <div class="flex-grow-1">
                     <div class="d-flex justify-content-between align-items-start">
                       <div>
                         <span>{t.name}</span>
-                        <small class="text-muted d-block">{sourceNames} → {outputName}{t.derived_unit ? ` (${t.derived_unit})` : ""}</small>
-                        <small class="text-muted d-block">on: {bindDef?.name || "?"} · method: {t.method_id}</small>
+                        <small class="text-muted d-block">{sourceNames} → {outputName}{t.derived.unit ? ` (${t.derived.unit})` : ""}</small>
+                        <small class="text-muted d-block">on: {bindDef?.name || "?"} · method: {cls?.displayName ?? t.typeId}</small>
                       </div>
                       <button class="btn btn-sm btn-close-sm" onclick={(e) => { e.stopPropagation(); removeTransform(t.id); }}>&times;</button>
                     </div>
                   </div>
                 </div>
                 {#if isEditing}
-                  {@const xformMethods = getTransformMethods()}
-                  {@const selMethod = getTransformMethod(t.method_id)}
                   <div class="card card-body mb-2 bg-light" style="font-size:0.8rem">
                     <div class="mb-2"><input class="form-control form-control-sm" value={t.name} oninput={(e) => updateTransform(t.id, { name: (e.target as HTMLInputElement).value })} /></div>
                     <div class="mb-2">
-                      <select class="form-select form-select-sm" value={t.method_id} onchange={(e) => updateTransform(t.id, { method_id: (e.target as HTMLSelectElement).value })}>
-                        {#each xformMethods as m}
-                          <option value={m.id}>{m.name}</option>
+                      <select class="form-select form-select-sm" value={t.typeId} onchange={(e) => { const tid = (e.target as HTMLSelectElement).value; const c2 = getTransform(tid); const ps = c2 ? c2.inputs() : []; updateTransform(t.id, { typeId: tid, inputs: c2 && !ps.some(p => p.variadic) ? ps.map(p => ({ role: p.role, definitionId: t.inputs.find(i => i.role === p.role)?.definitionId ?? "" })) : t.inputs }); }}>
+                        {#each transforms as m (m.typeId)}
+                          <option value={m.typeId}>{m.displayName}</option>
                         {/each}
                       </select>
                     </div>
                     <div class="mb-2">
                       <small class="text-muted d-block mb-1">Inputs</small>
-                      {#if selMethod?.variadic}
-                        {#each t.source_ports as port (port.port_key)}
+                      {#if variadic}
+                        {#each t.inputs as inp, i (inp.role + i)}
                           <div class="d-flex gap-1 mb-1">
-                            <input class="form-control form-control-sm" style="max-width:90px" value={port.port_key} oninput={(e) => updateTPort(t.id, port.port_key, { port_key: (e.target as HTMLInputElement).value || port.port_key })} />
-                            <select class="form-select form-select-sm" value={port.definition_id} onchange={(e) => updateTPort(t.id, port.port_key, { definition_id: (e.target as HTMLSelectElement).value })}>
+                            <input class="form-control form-control-sm" style="max-width:90px" value={inp.role} oninput={(e) => updateTInput(t.id, inp.role, { role: (e.target as HTMLInputElement).value || inp.role })} />
+                            <select class="form-select form-select-sm" value={inp.definitionId} onchange={(e) => updateTInput(t.id, inp.role, { definitionId: (e.target as HTMLSelectElement).value })}>
                               <option value="">-- select definition --</option>
-                              {#each allInputDefs as d (d.id)}
-                                <option value={d.id}>{d.name}{d.unit ? ` (${d.unit})` : ""}{isDerivedDef(doc, d.id) ? " [computed]" : ""}</option>
+                              {#each inputDefs as d (d.id)}
+                                <option value={d.id}>{d.name}{isDerivedDef(doc, d.id) ? " [computed]" : ""}</option>
                               {/each}
                             </select>
-                            <button class="btn btn-sm btn-close-sm" onclick={() => removeTPort(t.id, port.port_key)}>&times;</button>
+                            <button class="btn btn-sm btn-close-sm" onclick={() => removeTInput(t.id, inp.role)}>&times;</button>
                           </div>
                         {/each}
-                        <button class="btn btn-sm btn-outline-secondary" onclick={() => addTPort(t.id)}>+ variable</button>
+                        <button class="btn btn-sm btn-outline-secondary" onclick={() => addTInput(t.id, `v${t.inputs.length + 1}`)}>+ variable</button>
                       {:else}
-                        {#each (selMethod?.inputs ?? []) as inp (inp.key)}
-                          {@const port = t.source_ports.find(p => p.port_key === inp.key)}
-                          {@const bindDef2 = allInputDefs.find(d => d.id === port?.definition_id)}
+                        {#each ports as port (port.role)}
+                          {@const candidates = defsForPort(inputDefs, port)}
+                          {@const inp = t.inputs.find(i => i.role === port.role)}
                           <div class="d-flex gap-1 mb-1 align-items-center">
-                            <small class="text-muted" style="min-width:90px">{inp.label}</small>
-                            <select class="form-select form-select-sm" value={port?.definition_id ?? ""} onchange={(e) => updateTPort(t.id, inp.key, { definition_id: (e.target as HTMLSelectElement).value })}>
+                            <small class="text-muted" style="min-width:90px">{port.label}</small>
+                            <select class="form-select form-select-sm" value={inp?.definitionId ?? ""} onchange={(e) => updateTInput(t.id, port.role, { definitionId: (e.target as HTMLSelectElement).value })}>
                               <option value="">-- select --</option>
-                              {#each allInputDefs as d (d.id)}
-                                <option value={d.id}>{d.name}{d.data_type === "struct" ? ` [${d.meta?.struct_type_id ?? "struct"}]` : ""}{isDerivedDef(doc, d.id) ? " [computed]" : ""}</option>
+                              {#each candidates as d (d.id)}
+                                <option value={d.id}>{d.name}{isDerivedDef(doc, d.id) ? " [computed]" : ""}</option>
                               {/each}
                             </select>
-                            {#if inp.data_type === "number" && bindDef2}
-                              <select class="form-select form-select-sm" style="max-width:130px" value={port?.sub_key ?? "value"} onchange={(e) => updateTPort(t.id, inp.key, { sub_key: (e.target as HTMLSelectElement).value })}>
-                                {#each outputKeys as ok (ok)}
-                                  <option value={ok}>{ok}</option>
-                                {/each}
-                              </select>
-                            {/if}
                           </div>
                         {/each}
                       {/if}
                     </div>
                     <div class="mb-2">
-                      <small class="text-muted d-block">Output: {t.derived_name} · on: {bindDef?.name || t.derived_definition_id.slice(0,8)}</small>
+                      <small class="text-muted d-block">Output: {t.derived.name} · on: {bindDef?.name || t.derivedDefId.slice(0,8)}</small>
                     </div>
-                    {#each xformMethods.filter(m => m.id === t.method_id) as selMethod}
-                      <div class="mb-2"><small class="fw-bold text-muted">{selMethod.name} params</small></div>
-                      {#each selMethod.params_schema as p (p.key)}
+                    {#if cls}
+                      {#each cls.paramsSchema as p (p.key)}
                         <div class="mb-2">
                           <label class="form-label small mb-0">{p.label}</label>
                           {#if p.type === "text"}
                             <textarea class="form-control form-control-sm" rows="2" style="font-family:monospace;font-size:0.7rem" value={String(t.params[p.key] ?? "")} oninput={(e) => { const newParams = { ...t.params, [p.key]: (e.target as HTMLTextAreaElement).value }; updateTransform(t.id, { params: newParams }); }}></textarea>
-                          {:else if p.type === "number"}
-                            <input type="number" class="form-control form-control-sm" value={t.params[p.key] ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; const newParams = { ...t.params, [p.key]: v !== "" ? parseNum(v) : null }; updateTransform(t.id, { params: newParams }); }} />
                           {:else if p.type === "select" && p.options}
-                            <select class="form-select form-select-sm" value={String(t.params[p.key] ?? "")} onchange={(e) => { const newParams = { ...t.params, [p.key]: (e.target as HTMLSelectElement).value }; updateTransform(t.id, { params: newParams }); }}>
+                            <select class="form-select form-select-sm" value={String(t.params[p.key] ?? p.default ?? "")} onchange={(e) => { const newParams = { ...t.params, [p.key]: (e.target as HTMLSelectElement).value }; updateTransform(t.id, { params: newParams }); }}>
                               {#each p.options as opt}<option value={opt}>{opt}</option>{/each}
                             </select>
                           {:else}
-                            <input type="text" class="form-control form-control-sm" value={String(t.params[p.key] ?? "")} oninput={(e) => { const newParams = { ...t.params, [p.key]: (e.target as HTMLInputElement).value }; updateTransform(t.id, { params: newParams }); }} />
+                            <input type="number" class="form-control form-control-sm" value={t.params[p.key] ?? p.default ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; const newParams = { ...t.params, [p.key]: v !== "" ? Number(v) : null }; updateTransform(t.id, { params: newParams }); }} step="any" />
                           {/if}
                         </div>
                       {/each}
-                    {/each}
+                    {/if}
                   </div>
                 {/if}
               {/each}
@@ -588,9 +581,9 @@
                 <div class="text-muted" style="font-size:0.8rem">
                   <p>Transforms compute derived values from source inputs during logging.</p>
                   <ol class="small ps-3">
-                    <li>Select source definitions (must exist in Input Conditions)</li>
-                    <li>Choose "Create new" to auto-create a derived output, or pick an existing one</li>
-                    <li>Pick a method (formula, linear, lookup) and fill its params</li>
+                    <li>Pick a transform method (e.g. Linear, Gearbox output speed)</li>
+                    <li>Bind its typed inputs to definitions</li>
+                    <li>Create a new derived output field or pick an existing one</li>
                   </ol>
                 </div>
               {/if}
@@ -629,7 +622,7 @@
         {#if selNode}
           <PlanStepEditor node={selNode} definitions={doc.definitions} transforms={doc.transforms} onupdate={(p) => updateSelected(p)} />
         {:else}
-            <div class="p-3 text-center" style="margin-top:3rem"><div style="font-size:3rem;opacity:0.3">{"\u2699"}</div><div class="text-muted">Select a step to edit</div></div>
+          <div class="p-3 text-center" style="margin-top:3rem"><div style="font-size:3rem;opacity:0.3">{"\u2699"}</div><div class="text-muted">Select a step to edit</div></div>
         {/if}
       </div>
     </div>
@@ -659,6 +652,4 @@
   .context-item{display:block;width:100%;text-align:left;padding:6px 14px;border:none;background:none;font-size:.85rem;cursor:pointer}
   .context-item:hover{background:#e9ecef}
   .flex-grow-1{flex:1}
-  .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:1040}
-  .modal{z-index:1050}
 </style>

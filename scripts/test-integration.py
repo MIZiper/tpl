@@ -49,7 +49,7 @@ def main():
 
     def_id = "def-input-1"
     plan["definitions"]["input_conditions"].append(
-        {"id": def_id, "name": "Ambient Temp", "data_type": "number", "unit": "C"}
+        {"id": def_id, "name": "Ambient Temp", "typeId": "number", "unit": "C", "params": {}}
     )
     plan["root"] = [{
         "id": "group-1", "type": "group", "title": "Drivetrain", "children": [{
@@ -67,27 +67,25 @@ def main():
     plan2, _ = call("GET", f"{TPL}/documents/{did}/plan-document")
     check("tpl: save+get plan document", plan2["root"][0]["children"][0]["required_executions"] == 2)
 
-    # value_type + typed transform round-trip
-    plan2["definitions"]["input_conditions"][0]["meta"] = None
+    # value type + typed transform round-trip
     plan2["root"][0]["children"][0]["input_conditions"][0] = {
         "definition_id": def_id, "value": None,
-        "value_type": "ramp", "value_params": {"start_value": 0, "end_value": 100, "duration_seconds": 60},
+        "valueTypeId": "ramp", "params": {"start_value": 0, "end_value": 100, "duration_seconds": 60},
     }
-    plan2["value_types"] = [{"id": "ramp", "name": "Ramp", "params_schema": [], "outputs": [{"key": "value"}]}]
     plan2["transforms"] = [{
-        "id": "tf-1", "name": "Mid", "method_id": "linear",
-        "source_ports": [{"port_key": "value", "definition_id": def_id, "sub_key": "start_value"}],
-        "derived_definition_id": "def-derived-1", "derived_name": "Mid", "params": {"factor": 0.5, "offset": 0},
+        "id": "tf-1", "name": "Half", "typeId": "linear",
+        "inputs": [{"role": "value", "definitionId": def_id, "subKey": "start_value"}],
+        "derivedDefId": "def-derived-1", "derived": {"name": "Half", "unit": "rpm"},
+        "params": {"factor": 0.5, "offset": 0},
     }]
     call("PUT", f"{TPL}/documents/{did}/plan-document", {"document": plan2})
     plan3, _ = call("GET", f"{TPL}/documents/{did}/plan-document")
     b = plan3["root"][0]["children"][0]["input_conditions"][0]
-    check("tpl: value_type round-trip",
-          b["value_type"] == "ramp" and b["value_params"]["end_value"] == 100)
+    check("tpl: value type round-trip",
+          b["valueTypeId"] == "ramp" and b["params"]["end_value"] == 100)
     check("tpl: typed transform round-trip",
-          plan3["transforms"][0]["source_ports"][0]["sub_key"] == "start_value")
-    check("tpl: value_types round-trip",
-          plan3["value_types"][0]["id"] == "ramp")
+          plan3["transforms"][0]["inputs"][0]["subKey"] == "start_value"
+          and plan3["transforms"][0]["derived"]["unit"] == "rpm")
 
     edoc, s = call("POST", f"{TPL}/documents/{did}/execution-document/initialize")
     check("tpl: init execution doc from plan",

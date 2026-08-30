@@ -3,9 +3,10 @@
   import { p, route } from "../../router";
   import { execState, load, init, saveDoc, startRun, completeRun, updateRun, computeEntryStatus } from "../../stores/execution";
   import { executionApi, planApi } from "../../lib/api";
-  import { findNode, generateId, computeDerivedValues, parseNum } from "../../lib/plan-utils";
-  import { formatValue, getValueType, hasValueType } from "../../lib/value-type-registry";
-  import type { ExecutionEntry, ExecutionRun, ExecutionReading } from "../../types/execution";
+  import { findNode, generateId, computeStepOutputs, parseNum } from "../../lib/plan-utils";
+  import { setElapsed } from "../../lib/clock.svelte";
+  import { createValue, createBindingValue, PlainValue, getValueType, type Value } from "../../lib/values";
+  import type { ExecutionEntry, ExecutionRun } from "../../types/execution";
   import type { PlanNode, PlanFieldDef, FieldBinding } from "../../types/plan";
   import LogStepTree from "./LogStepTree.svelte";
 
@@ -44,6 +45,8 @@
     const interval = setInterval(update, 1000);
     return () => clearInterval(interval);
   });
+
+  $effect(() => setElapsed(tick));
 
   function activeRunForAny(): ExecutionRun | undefined {
     if (!doc) return undefined;
@@ -85,7 +88,6 @@
     return doc.entries.find(e => e.id === selectedEntryId);
   }
 
-  // Trigger Svelte reactivity after doc mutation
   function dirty() {
     if (!doc) return;
     execState.update(s => ({ ...s, document: { ...doc!, entries: [...doc!.entries] } }));
@@ -95,20 +97,18 @@
   const selStep = $derived(selEntry?.plan_step_id && plan ? findNode(plan.root, selEntry.plan_step_id) : null);
   const pureStep = $derived(selectedStepId && plan ? findNode(plan.root, selectedStepId) : null);
 
-  // For ad-hoc entries: build synthetic field bindings from selected definitions
   const adhocBindings = $derived((selEntry?.type === "adhoc" && plan && selEntry.selected_bindings) ? {
-    input_conditions: (selEntry.selected_bindings.input_conditions || []).map(id => 
-      plan.definitions.input_conditions.find(d => d.id === id) || { id, name: "", data_type: "text", unit: null, meta: null }
+    input_conditions: (selEntry.selected_bindings.input_conditions || []).map(id =>
+      plan.definitions.input_conditions.find(d => d.id === id) || { id, typeId: "text", name: "", unit: null, params: {} }
     ).map(d => ({ definition_id: d.id, value: null })),
     collection_items: (selEntry.selected_bindings.collection_items || []).map(id =>
-      plan.definitions.collection_items.find(d => d.id === id) || { id, name: "", data_type: "text", unit: null, meta: null }
+      plan.definitions.collection_items.find(d => d.id === id) || { id, typeId: "text", name: "", unit: null, params: {} }
     ).map(d => ({ definition_id: d.id, value: null })),
     completion_criteria: (selEntry.selected_bindings.completion_criteria || []).map(id =>
-      plan.definitions.completion_criteria.find(d => d.id === id) || { id, name: "", data_type: "text", unit: null, meta: null }
+      plan.definitions.completion_criteria.find(d => d.id === id) || { id, typeId: "text", name: "", unit: null, params: {} }
     ).map(d => ({ definition_id: d.id, value: null })),
   } : null);
 
-  // Effective step data for the detail panel
   const displayStep = $derived(selStep || pureStep || (adhocBindings ? {
     type: "step" as const,
     title: selEntry?.step_title || "",
@@ -120,57 +120,54 @@
     required_executions: 1,
   } as PlanNode : null));
 
-  function mergedParamsFor(defId: string, b: FieldBinding): Record<string, unknown> {
-    const lp = liveInputParams[defId] ?? {};
-    const params: Record<string, unknown> = { ...(b.value_params ?? {}) };
-    for (const [k, v] of Object.entries(lp)) {
-      if (v === "" || v == null) delete params[k];
-      else params[k] = parseNum(v) ?? v;
+  function defField(fieldId: string): PlanFieldDef | null {
+    const defs = plan?.definitions;
+    if (!defs) return null;
+    for (const cat of ["input_conditions","collection_items","completion_criteria","custom"] as const) {
+      const d = defs[cat].find(f => f.id === fieldId);
+      if (d) return d;
     }
-    return params;
+    return null;
   }
 
-  // Effective bindings for the displayed step, merging live inputs typed during a run.
-  function effectiveBindings(): FieldBinding[] {
-    if (!displayStep) return [];
-    const list: FieldBinding[] = [];
+  // Effective bound Values for the displayed step (live edits merged in).
+  const stepValues = $derived.by(() => {
+    const map: Record<string, Value> = {};
+    if (!plan || !displayStep) return map;
     for (const b of displayStep.input_conditions) {
       const def = defField(b.definition_id);
-      if (b.value_type && hasValueType(b.value_type)) {
-        list.push({
-          definition_id: b.definition_id,
-          value: null,
-          value_type: b.value_type,
-          value_params: mergedParamsFor(b.definition_id, b),
-        });
+      if (def?.typeId === "struct") {
+        map[b.definition_id] = createBindingValue(b, def);
+      } else if (b.valueTypeId) {
+        const lp = liveInputParams[b.definition_id] ?? {};
+        const params: Record<string, unknown> = { ...(b.params ?? {}) };
+        for (const [k, v] of Object.entries(lp)) {
+          if (v === "" || v == null) delete params[k];
+          else params[k] = parseNum(v) ?? v;
+        }
+        map[b.definition_id] = createValue(b.valueTypeId, params, null);
       } else {
-        const raw = inputValues[b.definition_id];
-        let value: unknown = raw !== undefined ? raw : b.value ?? null;
-        if (def?.data_type === "number") value = value === "" || value == null ? null : parseNum(String(value));
-        list.push({ definition_id: b.definition_id, value });
+        const raw = inputValues[b.definition_id] ?? b.value ?? (selEntry?.selected_bindings?.input_values as any)?.[b.definition_id];
+        let val: unknown = raw ?? null;
+        if (def?.typeId === "number") val = val === "" || val == null ? null : parseNum(String(val));
+        map[b.definition_id] = new PlainValue(val as number | string | null);
       }
     }
     for (const b of displayStep.collection_items) {
+      const def = defField(b.definition_id);
       const v = measValues[b.definition_id];
       if (v !== undefined && v !== "") {
-        const def = defField(b.definition_id);
-        list.push({ definition_id: b.definition_id, value: def?.data_type === "number" ? parseNum(v) : v });
-      } else if (b.value !== null && b.value !== undefined) {
-        list.push({ definition_id: b.definition_id, value: b.value });
+        map[b.definition_id] = new PlainValue(def?.typeId === "number" ? parseNum(v) : v);
+      } else if (b.value != null) {
+        map[b.definition_id] = new PlainValue(b.value as number | string | null);
       }
     }
-    return list;
-  }
-
-  const liveXformValues = $derived.by(() => {
-    if (!plan || !plan.transforms?.length || !plan.definitions) return {} as Record<string, number | null>;
-    const bindings = effectiveBindings();
-    const derived = computeDerivedValues(plan.transforms, bindings, plan.definitions, { elapsed_seconds: tick });
-    const map: Record<string, number | null> = {};
-    for (const d of derived) {
-      map[d.definition_id] = d.value as number | null;
-    }
     return map;
+  });
+
+  const outputs = $derived.by(() => {
+    if (!plan) return { byTransform: {} as Record<string, Value>, byDef: {} as Record<string, Value> };
+    return computeStepOutputs(plan.transforms ?? [], plan.definitions, stepValues);
   });
 
   // --- Context menu ---
@@ -282,25 +279,17 @@
     if (!doc || !selEntry) return;
 
     const input_readings: Array<{ definition_id: string; definition_name: string; value: unknown }> = (displayStep?.input_conditions || []).map((b: FieldBinding) => {
-      let value: unknown;
-      const def = defField(b.definition_id);
-      if (b.value_type && hasValueType(b.value_type)) {
-        value = formatValue(b.value_type, mergedParamsFor(b.definition_id, b), { elapsed_seconds: tick });
-      } else {
-        const raw = inputValues[b.definition_id] ?? b.value ?? null;
-        value = def?.data_type === "number" ? (raw === "" || raw == null ? null : parseNum(String(raw))) : raw;
-      }
-      return {
-        definition_id: b.definition_id,
-        definition_name: defName(b.definition_id),
-        value,
-      };
+      const v = stepValues[b.definition_id];
+      return { definition_id: b.definition_id, definition_name: defName(b.definition_id), value: v ? v.scalar("value") : null };
     });
 
-    if (plan && plan.transforms?.length) {
-      const derived = computeDerivedValues(plan.transforms, effectiveBindings(), plan.definitions, { elapsed_seconds: tick });
-      input_readings.push(...derived);
+    if (plan?.transforms?.length) {
+      for (const t of plan.transforms) {
+        const out = outputs.byTransform[t.id];
+        if (out) input_readings.push({ definition_id: t.id, definition_name: t.derived.name || t.name, value: out.scalar("value") });
+      }
     }
+
     const collection_results = (displayStep?.collection_items || []).map((b: FieldBinding) => ({
       definition_id: b.definition_id,
       definition_name: defName(b.definition_id),
@@ -343,7 +332,6 @@
     };
   }
 
-  // --- Ad-hoc ---
   async function handleAdhoc() {
     if (!doc || !adhocTitle) return;
 
@@ -373,29 +361,12 @@
     resetAdhoc();
   }
 
-  // --- Init ---
   async function handleInit() {
     await init(id, executionApi.initialize);
   }
 
   function defName(fieldId: string): string {
-    const defs = plan?.definitions;
-    if (!defs) return fieldId;
-    for (const cat of ["input_conditions","collection_items","completion_criteria","custom"] as const) {
-      const d = defs[cat].find(f => f.id === fieldId);
-      if (d) return d.name;
-    }
-    return fieldId;
-  }
-
-  function defField(fieldId: string): PlanFieldDef | null {
-    const defs = plan?.definitions;
-    if (!defs) return null;
-    for (const cat of ["input_conditions","collection_items","completion_criteria","custom"] as const) {
-      const d = defs[cat].find(f => f.id === fieldId);
-      if (d) return d;
-    }
-    return null;
+    return defField(fieldId)?.name ?? fieldId;
   }
 
   function statusClass(entry: ExecutionEntry): string {
@@ -513,7 +484,6 @@
             </div>
 
             <div class="log-detail-body">
-              <!-- Active run info -->
               {#if selEntry && run}
                 <div class="log-run-active mb-3">
                   <div class="d-flex justify-content-between align-items-start">
@@ -535,91 +505,63 @@
                 </div>
               {/if}
 
-              <!-- Inputs: read-only blocks (editable during run for value types) -->
+              <!-- Inputs -->
               {#if displayStep.input_conditions.length > 0}
                 <div class="mb-3">
                   <div class="binding-category">Input Conditions</div>
                   <div class="field-blocks">
                     {#each displayStep.input_conditions as b (b.definition_id)}
                       {@const d = defField(b.definition_id)}
-                      {@const isValueTyped = !!b.value_type}
+                      {@const vt = b.valueTypeId ? getValueType(b.valueTypeId) : undefined}
                       {@const isDerived = d?.derived === true}
-                      {@const vt = isValueTyped ? getValueType(b.value_type!) : undefined}
+                      {@const value = stepValues[b.definition_id]}
+                      {@const out = isDerived ? outputs.byDef[b.definition_id] : undefined}
                       {@const lp = liveInputParams[b.definition_id] ?? {}}
-                      {@const mergedParams = { ...(b.value_params ?? {}), ...lp }}
-                      {@const inputVal = inputValues[b.definition_id] ?? b.value ?? (selEntry?.selected_bindings?.input_values as any)?.[b.definition_id]}
                       <div class="field-block" class:derived={isDerived}>
                         <div class="field-block-label">
                           {d?.name || b.definition_id.slice(0,8)}
-                          {#if isValueTyped}<span class="badge bg-info ms-1">Value type</span>{/if}
+                          {#if vt}<span class="badge bg-info ms-1">{vt.displayName}</span>{/if}
                           {#if isDerived}<span class="badge bg-secondary ms-1">Computed</span>{/if}
                         </div>
                         {#if d?.unit}<small class="text-muted">{d.unit}</small>{/if}
-                        {#if isValueTyped && vt}
-                          <small class="text-muted d-block">{formatValue(b.value_type!, mergedParams, { elapsed_seconds: run ? tick : 0 })}</small>
-                        {/if}
+                        {#if vt && value}<small class="text-muted d-block">{value.describe()}</small>{/if}
 
-                        {#if run && isValueTyped && vt}
-                          {#if vt.params_schema.length > 0}
+                        {#if isDerived}
+                          <div class="field-block-value">{out?.display() ?? "—"}</div>
+                        {:else if run && b.valueTypeId && vt}
+                          {#if vt.paramsSchema.length > 0}
                             <div class="value-params-grid mt-1">
-                              {#each vt.params_schema as p (p.key)}
+                              {#each vt.paramsSchema as p (p.key)}
                                 <div class="mb-1">
                                   <label class="small text-muted d-block" style="font-size:0.68rem">{p.label}</label>
-                                  {#if p.type === "number"}
-                                    <input type="number" class="form-control form-control-sm" step="any" value={mergedParams[p.key] ?? p.default ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; liveInputParams = { ...liveInputParams, [b.definition_id]: { ...lp, [p.key]: v } }; }} />
-                                  {:else if p.type === "select" && p.options}
-                                    <select class="form-select form-select-sm" value={String(mergedParams[p.key] ?? p.default ?? "")} onchange={(e) => { const v = (e.target as HTMLSelectElement).value; liveInputParams = { ...liveInputParams, [b.definition_id]: { ...lp, [p.key]: v } }; }}>
+                                  {#if p.type === "select" && p.options}
+                                    <select class="form-select form-select-sm" value={String(lp[p.key] ?? b.params?.[p.key] ?? p.default ?? "")} onchange={(e) => { const v = (e.target as HTMLSelectElement).value; liveInputParams = { ...liveInputParams, [b.definition_id]: { ...lp, [p.key]: v } }; }}>
                                       {#each p.options as opt}<option value={opt}>{opt}</option>{/each}
                                     </select>
                                   {:else}
-                                    <input type="text" class="form-control form-control-sm" value={mergedParams[p.key] ?? p.default ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; liveInputParams = { ...liveInputParams, [b.definition_id]: { ...lp, [p.key]: v } }; }} />
+                                    <input type="number" class="form-control form-control-sm" step="any" value={lp[p.key] ?? b.params?.[p.key] ?? p.default ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; liveInputParams = { ...liveInputParams, [b.definition_id]: { ...lp, [p.key]: v } }; }} />
                                   {/if}
                                 </div>
                               {/each}
                             </div>
                           {:else}
-                            <input type="text"
-                              class="form-control form-control-sm mt-1"
-                              placeholder="Value"
-                              value={inputVal ?? ""}
-                              oninput={(e) => inputValues = { ...inputValues, [b.definition_id]: (e.target as HTMLInputElement).value }}
-                            />
+                            <input type="text" class="form-control form-control-sm mt-1" placeholder="Value" value={String(b.value ?? "")} oninput={(e) => inputValues = { ...inputValues, [b.definition_id]: (e.target as HTMLInputElement).value }} />
                           {/if}
-                        {:else if run && isDerived}
-                          {@const xfOut = plan?.transforms?.find(t => t.derived_definition_id === b.definition_id)}
-                          {@const liveOut = xfOut && liveXformValues[xfOut.id]}
-                          {@const dr = run.input_readings.find(r => r.definition_id === b.definition_id)}
-                          <div class="field-block-value">{liveOut ?? dr?.value ?? inputVal ?? "—"}</div>
-                        {:else if isDerived}
-                          {@const xfOut = plan?.transforms?.find(t => t.derived_definition_id === b.definition_id)}
-                          {@const liveOut = xfOut && liveXformValues[xfOut.id]}
-                          <div class="field-block-value">{liveOut ?? inputVal ?? "—"}</div>
-                        {:else if isValueTyped}
-                          <div class="field-block-value">{formatValue(b.value_type!, mergedParams, { elapsed_seconds: run ? tick : 0 })}</div>
+                        {:else if run && d?.typeId === "select" && (d.params.options as string[] | undefined)?.length}
+                          <select class="form-select form-select-sm mt-1" value={String(b.value ?? "")} onchange={(e) => { const v = (e.target as HTMLSelectElement).value; inputValues = { ...inputValues, [b.definition_id]: v }; }}>
+                            <option value="">--</option>
+                            {#each (d.params.options as string[]) as opt}<option value={opt}>{opt}</option>{/each}
+                          </select>
+                        {:else if run}
+                          <input
+                            type={d?.typeId === "number" ? "number" : "text"}
+                            class="form-control form-control-sm mt-1"
+                            placeholder="Value"
+                            value={String(value?.scalar("value") ?? "")}
+                            oninput={(e) => inputValues = { ...inputValues, [b.definition_id]: (e.target as HTMLInputElement).value }}
+                          />
                         {:else}
-                          <div class="field-block-value">{inputVal ?? "—"}</div>
-                        {/if}
-
-                        {#if plan?.transforms}
-                          {@const myXforms = plan.transforms.filter(t => t.derived_definition_id === b.definition_id)}
-                          {#if myXforms.length > 0 && selEntry}
-                            {@const lastRun = selEntry.executions.filter((e: ExecutionRun) => e.status === "completed").reverse()[0]}
-                            <div class="derived-outputs mt-1">
-                              {#each myXforms as xf (xf.id)}
-                                {@const liveVal = liveXformValues[xf.id]}
-                                {@const runVal = lastRun?.input_readings?.find((r: ExecutionReading) => r.definition_id === xf.id)?.value}
-                                {@const xfVal = liveVal ?? runVal}
-                                <div class="derived-output-item">
-                                  <span class="derived-output-name">{xf.derived_name || defName(xf.derived_definition_id)}</span>
-                                  {#if xfVal != null}
-                                    <span class="derived-output-value">{String(xfVal)}{xf.derived_unit ? ` ${xf.derived_unit}` : ""}</span>
-                                  {:else}
-                                    <span class="derived-output-value text-muted">—</span>
-                                  {/if}
-                                </div>
-                              {/each}
-                            </div>
-                          {/if}
+                          <div class="field-block-value">{value?.display() ?? "—"}</div>
                         {/if}
                       </div>
                     {/each}
@@ -627,7 +569,7 @@
                 </div>
               {/if}
 
-              <!-- Measurements: interactive blocks -->
+              <!-- Measurements -->
               {#if displayStep.collection_items.length > 0}
                 <div class="mb-3">
                   <div class="binding-category">Measurements</div>
@@ -642,12 +584,12 @@
                         {#if d?.unit}<small class="text-muted">{d.unit}</small>{/if}
                           {#if run && !saved}
                             <div class="mt-1">
-                              {#if d?.data_type === "bool"}
+                              {#if d?.typeId === "bool"}
                                 <div class="d-flex gap-1">
                                   <button class="btn btn-sm {chosen === 'pass' ? 'btn-success' : 'btn-outline-success'}" onclick={() => measFlags = { ...measFlags, [b.definition_id]: 'pass' }}>Pass</button>
                                   <button class="btn btn-sm {chosen === 'fail' ? 'btn-danger' : 'btn-outline-danger'}" onclick={() => measFlags = { ...measFlags, [b.definition_id]: 'fail' }}>Fail</button>
                                 </div>
-                              {:else if d?.data_type === "number"}
+                              {:else if d?.typeId === "number"}
                                 <div class="input-group input-group-sm">
                                   <input type="number" class="form-control form-control-sm" placeholder="Value" value={val ?? ""} oninput={(e) => measValues = { ...measValues, [b.definition_id]: (e.target as HTMLInputElement).value }} />
                                   {#if d?.unit}<span class="input-group-text">{d.unit}</span>{/if}
@@ -665,7 +607,7 @@
                 </div>
               {/if}
 
-              <!-- Criteria: interactive blocks -->
+              <!-- Criteria -->
               {#if displayStep.completion_criteria.length > 0}
                 <div class="mb-3">
                   <div class="binding-category">Completion Criteria</div>
@@ -775,7 +717,6 @@
         <div class="mb-3"><label class="form-label small fw-bold">Title</label><input class="form-control form-control-sm" placeholder="Title" bind:value={adhocTitle} /></div>
 
         {#if plan}
-          <!-- Input Conditions -->
           {#if plan.definitions.input_conditions.length > 0}
             <div class="mb-3">
               <div class="binding-category mb-1">Input Conditions</div>
@@ -790,17 +731,17 @@
                     <span>{f.name}{#if f.unit} <small class="text-muted">({f.unit})</small>{/if}</span>
                   </label>
                   {#if adhocInputs.includes(f.id)}
-                    {#if f.data_type === "select" && f.meta?.options?.length}
+                    {#if f.typeId === "select" && (f.params.options as string[] | undefined)?.length}
                       <select class="form-select form-select-sm mt-1" value={adhocInputValues[f.id] ?? ""} onchange={(e) => {
                         adhocInputValues[f.id] = (e.target as HTMLSelectElement).value;
                         adhocInputValues = { ...adhocInputValues };
                       }}>
                         <option value="">--</option>
-                        {#each f.meta.options as opt}<option value={opt}>{opt}</option>{/each}
+                        {#each (f.params.options as string[]) as opt}<option value={opt}>{opt}</option>{/each}
                       </select>
                     {:else}
                       <input
-                        type={f.data_type === "number" ? "number" : "text"}
+                        type={f.typeId === "number" ? "number" : "text"}
                         class="form-control form-control-sm mt-1"
                         placeholder="Value"
                         value={adhocInputValues[f.id] ?? ""}
@@ -816,7 +757,6 @@
             </div>
           {/if}
 
-          <!-- Measurement Items -->
           {#if plan.definitions.collection_items.length > 0}
             <div class="mb-3">
               <div class="binding-category mb-1">Measurement Items</div>
@@ -834,7 +774,6 @@
             </div>
           {/if}
 
-          <!-- Completion Criteria -->
           {#if plan.definitions.completion_criteria.length > 0}
             <div class="mb-3">
               <div class="binding-category mb-1">Completion Criteria</div>
@@ -893,8 +832,6 @@
     border-bottom: 1px solid #dee2e6; border-top: 1px solid #dee2e6; margin-top: 1px;
   }
   .group-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.5px; }
-  .log-step-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-  .log-detail {}
   .log-detail-header { padding: 12px; border-bottom: 1px solid #dee2e6; background: #fff; }
   .log-detail-body { padding: 12px; }
   .log-run-active { padding: 8px; background: #d1e7dd; border-radius: 6px; }
@@ -905,17 +842,12 @@
   .field-block { padding: 8px 10px; background: #fff; border: 1px solid #dee2e6; border-radius: 6px; min-width: 100px; flex: 1; }
   .field-block.measurement { border-left: 3px solid #0d6efd; }
   .field-block.derived { border-left: 3px solid #6f42c1; background: #f8f6ff; }
-  .derived-outputs { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 4px; }
-  .derived-output-item { padding: 2px 6px; background: #f0f0ff; border: 1px solid #c8c8e4; border-radius: 3px; font-size: 0.7rem; display: flex; gap: 4px; align-items: center; }
-  .derived-output-name { color: #6f42c1; font-weight: 500; }
-  .derived-output-value { color: #333; }
   .field-block.criteria { border-left: 3px solid #198754; }
   .field-block.criteria.passed { background: #d1e7dd; border-color: #198754; }
   .field-block.criteria.failed { background: #f8d7da; border-color: #dc3545; }
   .field-block-label { font-size: 0.75rem; font-weight: 600; }
   .field-block-value { font-size: 0.85rem; margin-top: 4px; }
   .run-record { padding: 6px 8px; background: #fff; border: 1px solid #eee; border-radius: 4px; margin-bottom: 3px; font-size: 0.8rem; }
-  .run-mini-section { margin-top: 4px; }
   .run-mini-row { display: flex; gap: 12px; margin-top: 4px; }
   .run-mini-col { flex: 1; min-width: 0; }
   .run-mini-label { font-size: 0.68rem; font-weight: 600; color: #888; text-transform: uppercase; margin-bottom: 2px; }

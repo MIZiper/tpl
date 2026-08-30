@@ -31,10 +31,12 @@ tpl-frontend/src/
 │   └── execution.ts          # ExecutionDoc store
 ├── lib/
 │   ├── api/                  # documentsApi / planApi / executionApi
-│   ├── plan-utils.ts         # tree utils, value/transform evaluation, doc normalization
-│   ├── value-type-registry.ts # binding-level value types (range/deviation/percentage/waveforms)
-│   ├── struct-registry.ts    # struct types
-│   └── transform-registry.ts # typed transform methods (input ports + output)
+│   ├── plan-utils.ts         # tree utils, transform graph evaluation
+│   ├── clock.svelte.ts       # reactive elapsed-seconds clock (Svelte $state)
+│   ├── fieldtypes.ts         # definition kinds (number/text/select/bool/struct)
+│   ├── values.ts             # binding value classes (values/display/describe/scalar)
+│   ├── structs.ts            # struct classes (e.g. GearboxStruct)
+│   └── transforms.ts         # typed transform classes (formula/linear/lookup/gearbox.output_speed)
 └── types/
     ├── document.ts
     ├── plan.ts

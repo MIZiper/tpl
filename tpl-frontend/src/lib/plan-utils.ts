@@ -6,9 +6,8 @@ import type {
   FieldBinding,
   TransformDef,
 } from "../types/plan";
-import type { ExecutionReading } from "../types/execution";
-import { evaluateTransform } from "./transform-registry";
-import { hasValueType, resolveSubValues, type ValueContext } from "./value-type-registry";
+import { PlainValue, SubValue, type Value } from "./values";
+import { getTransform } from "./transforms";
 
 let _counter = 0;
 const prefix = Math.random().toString(36).slice(2, 8);
@@ -30,9 +29,6 @@ export function createDefaultDocument(): PlanDocument {
     root: [],
     templates: [],
     transforms: [],
-    value_types: [],
-    transform_methods: [],
-    struct_types: [],
   };
 }
 
@@ -290,76 +286,59 @@ export function getDerivedDefinitions(defs: PlanDefinitions): PlanFieldDef[] {
   return all.filter((d) => d.derived === true);
 }
 
-export function resolveBindingValue(
-  binding: FieldBinding,
-  def: PlanFieldDef | undefined,
-  subKey: string | undefined,
-  ctx: ValueContext = {}
-): unknown {
-  if (def?.data_type === "struct") {
-    const structObj = {
-      struct_type_id: def.meta?.struct_type_id ?? null,
-      params: def.meta?.struct_params ?? {},
-    };
-    return subKey ? structObj.params[subKey] : structObj;
-  }
-  if (binding.value_type && hasValueType(binding.value_type)) {
-    const values = resolveSubValues(binding.value_type, binding.value_params ?? {}, ctx);
-    const key = subKey ?? "value";
-    return key in values ? values[key] : values["value"];
-  }
-  return binding.value ?? null;
+export function allDefinitions(defs: PlanDefinitions): PlanFieldDef[] {
+  return [
+    ...defs.input_conditions,
+    ...defs.collection_items,
+    ...defs.completion_criteria,
+    ...defs.custom,
+  ];
 }
 
-export function computeDerivedValues(
+export interface StepOutputs {
+  byTransform: Record<string, Value>;
+  byDef: Record<string, Value>;
+}
+
+// Evaluate all transforms for a step. `valuesByDefId` maps definition id ->
+// the bound Value (built from the step's bindings). Returns the computed
+// outputs keyed both by transform id and by derived definition id.
+export function computeStepOutputs(
   transforms: TransformDef[],
-  bindings: FieldBinding[],
   definitions: PlanDefinitions,
-  ctx: ValueContext = {}
-): ExecutionReading[] {
-  if (!transforms.length) return [];
-
-  const allDefs: PlanFieldDef[] = [
-    ...definitions.input_conditions,
-    ...definitions.collection_items,
-    ...definitions.completion_criteria,
-    ...definitions.custom,
-  ];
-
-  const defById = new Map<string, PlanFieldDef>();
-  for (const d of allDefs) defById.set(d.id, d);
-
-  const bindingByDefId = new Map<string, FieldBinding>();
-  for (const b of bindings) bindingByDefId.set(b.definition_id, b);
+  valuesByDefId: Record<string, Value>
+): StepOutputs {
+  const byTransform: Record<string, Value> = {};
+  const byDef: Record<string, Value> = {};
+  if (!transforms.length) return { byTransform, byDef };
 
   const sorted = topologicalSortTransforms(transforms);
-  const computedByDefId: Record<string, unknown> = {};
+  const outByDefId = new Map<string, Value>();
 
-  const results: ExecutionReading[] = [];
   for (const t of sorted) {
-    const inputs: Record<string, unknown> = {};
-    for (const port of t.source_ports) {
-      const srcVal = computedByDefId[port.definition_id] ?? null;
-      if (srcVal != null) {
-        inputs[port.port_key] = srcVal;
+    const cls = getTransform(t.typeId);
+    if (!cls) continue;
+    const inputs: Record<string, Value> = {};
+    for (const inb of t.inputs) {
+      const src = outByDefId.get(inb.definitionId) ?? valuesByDefId[inb.definitionId];
+      if (!src) {
+        inputs[inb.role] = new PlainValue(null);
+        continue;
+      }
+      const port = cls.inputs().find((p) => p.role === inb.role);
+      if (port?.kind === "struct" && !inb.subKey) {
+        inputs[inb.role] = src;
       } else {
-        const binding = bindingByDefId.get(port.definition_id);
-        const def = defById.get(port.definition_id);
-        inputs[port.port_key] = binding ? resolveBindingValue(binding, def, port.sub_key, ctx) : null;
+        inputs[inb.role] = new SubValue(src, inb.subKey ?? "value");
       }
     }
-
-    const computed = evaluateTransform(t.method_id, inputs, t.params);
-    computedByDefId[t.derived_definition_id] = computed;
-    const defName = t.derived_name || defById.get(t.derived_definition_id)?.name || t.name;
-    results.push({
-      definition_id: t.id,
-      definition_name: defName,
-      value: computed,
-    });
+    const out = cls.apply(inputs, { ...t.params, derived_unit: t.derived.unit });
+    byTransform[t.id] = out;
+    outByDefId.set(t.derivedDefId, out);
+    byDef[t.derivedDefId] = out;
   }
 
-  return results;
+  return { byTransform, byDef };
 }
 
 function topologicalSortTransforms(transforms: TransformDef[]): TransformDef[] {
@@ -374,8 +353,8 @@ function topologicalSortTransforms(transforms: TransformDef[]): TransformDef[] {
   }
 
   for (const t of transforms) {
-    for (const port of t.source_ports) {
-      const srcTf = transforms.find(tf => tf.derived_definition_id === port.definition_id);
+    for (const inb of t.inputs) {
+      const srcTf = transforms.find(tf => tf.derivedDefId === inb.definitionId);
       if (srcTf && tfById.has(srcTf.id)) {
         const deps = adjacency.get(srcTf.id)!;
         deps.push(t.id);

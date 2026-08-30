@@ -62,10 +62,16 @@ Ports: tpl-backend `8000`, rsp-backend `8001`, tpl-frontend dev `5173`, rsp-fron
 ## TPL document model
 
 - `documents` table: `id (UUID)`, `name`, `description`, `plan_document JSONB`, `execution_document JSONB`, timestamps.
-- `PlanDocument`: `{ version, definitions {input_conditions, collection_items, completion_criteria, custom}, root: PlanNode[], templates, transforms, value_types, transform_methods, struct_types }`.
-  - `PlanNode`: `{ id, type(group|step), title, children[], duration_minutes, changeover_minutes, input_conditions[]/collection_items[]/completion_criteria[] (FieldBinding{definition_id, value, value_type, value_params}), system_config, required_executions, step_template_id, solution_step_id }`.
-  - `PlanFieldDef` is a pure type: `{ id, name, data_type(number|text|select|bool|struct), unit, meta{options, struct_type_id, struct_params}, derived }`. Numeric shape is NOT on the def — it lives on the binding as `value_type` (plain/deviation/percentage/sinusoidal/ramp) + `value_params`.
-  - `TransformDef`: `{ id, name, method_id, source_ports[{port_key, definition_id, sub_key}], derived_definition_id, derived_name, derived_unit, params }`. `TransformMethodDef` declares typed input ports (`inputs: [{key, kind(fielddef|struct), data_type?, struct_type_id?}]`) and an `output {data_type}`. Evaluators receive `Record<portKey, value>`; composite value types expose named sub-values (e.g. `range.start`) selectable via `sub_key`.
+- **Behavior lives in frontend code classes; the JSONB stores only instance data referencing registered classes by id.** Backend pydantic for the plan document is fully generic (pass-through).
+- Registered class families (`tpl-frontend/src/lib/`): `fieldtypes.ts` (definition kinds number/text/select/bool/struct), `values.ts` (binding value behavior: plain/ramp/deviation/percentage/sinusoidal/struct — expose `values()`, `display()`, `describe()`, `scalar(subKey)`), `structs.ts` (e.g. `GearboxStruct` with `ratioFor(stage)`), `transforms.ts` (typed methods: formula/linear/lookup/`gearbox.output_speed`; static `inputs()` + `apply(inputs, params) → Value`).
+- **Clock**: `clock.svelte.ts` exports a module `$state` `clock.elapsedSeconds`; `Value.values()` reads it, so any `$derived`/template calling `display()`/`values()` re-runs as the clock ticks. `LoggingMain` mirrors the run elapsed into `setElapsed(tick)`.
+- **Transform outputs are composable**: `Transform.apply` returns a `DerivedValue` that lazily recomputes from its input `Value`s, so chaining works and time-variation propagates automatically (e.g. gearbox output speed = `speed(t) / ratio(stage)`).
+- Persisted shapes (`tpl-frontend/src/types/plan.ts`):
+  - `PlanDocument`: `{ version, definitions{input_conditions, collection_items, completion_criteria, custom}, root, templates, transforms }`.
+  - `PlanFieldDef`: `{ id, typeId, name, unit, params }` — `params.options` for select; `params.structTypeId` + struct fields for struct.
+  - `FieldBinding`: `{ definition_id, value?, valueTypeId?, params? }` — `value` for plain scalars; `valueTypeId`+`params` for ramp/deviation/percentage/sinusoidal.
+  - `TransformDef`: `{ id, name, typeId, inputs:[{role, definitionId, subKey?}], derivedDefId, derived:{name, unit}, params }`.
+  - `PlanNode`: `{ id, type(group|step), title, children[], duration_minutes, changeover_minutes, input_conditions[]/collection_items[]/completion_criteria[] (FieldBinding[]), system_config, required_executions, step_template_id, solution_step_id }`.
 - `ExecutionDoc`: `{ version, status(idle|in_progress|paused|completed), entries: ExecutionEntry[], pause_history[] }`.
   - `ExecutionEntry`: `{ id, plan_step_id, step_title, type(planned|adhoc), required_executions, executions: ExecutionRun[], selected_bindings }`.
   - `ExecutionRun`: `{ id, status(pending|in_progress|completed|skipped), started_at, completed_at, input_readings[], collection_results[], criteria_results[], notes }`.

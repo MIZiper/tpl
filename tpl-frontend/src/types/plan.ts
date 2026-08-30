@@ -1,15 +1,12 @@
-export interface PlanFieldDefMeta {
-  options?: string[];
-  struct_type_id?: string;
-  struct_params?: Record<string, unknown>;
-}
+// Persisted (JSON) shapes. Behavior lives in code classes; the document only
+// stores instance data that references registered classes by id.
 
 export interface PlanFieldDef {
   id: string;
+  typeId: string;                 // field type id: number | text | select | bool | struct
   name: string;
-  data_type: "number" | "text" | "select" | "bool" | "struct";
   unit: string | null;
-  meta: PlanFieldDefMeta | null;
+  params: Record<string, unknown>; // select: {options}; struct: {structTypeId, ...fields}
   derived?: boolean;
 }
 
@@ -22,9 +19,9 @@ export interface PlanDefinitions {
 
 export interface FieldBinding {
   definition_id: string;
-  value: unknown;
-  value_type?: string;
-  value_params?: Record<string, unknown>;
+  value?: unknown;                // plain scalar
+  valueTypeId?: string;           // plain | ramp | deviation | percentage | sinusoidal
+  params?: Record<string, unknown>;
 }
 
 export interface PlanNode {
@@ -50,84 +47,20 @@ export interface PlanTemplate {
   step: PlanNode;
 }
 
-export interface TransformParamDef {
-  key: string;
-  label: string;
-  type: "number" | "text" | "select" | "definition_ref";
-  default?: unknown;
-  options?: string[];
-  required?: boolean;
-}
-
-export interface TransformInputPortDef {
-  key: string;
-  label: string;
-  kind: "fielddef" | "struct";
-  data_type?: "number" | "text" | "select" | "bool";
-  struct_type_id?: string;
-}
-
-export interface TransformOutputDef {
-  data_type: "number" | "text";
-}
-
-export interface TransformMethodDef {
-  id: string;
-  name: string;
-  description?: string;
-  category?: string;
-  inputs: TransformInputPortDef[];
-  output: TransformOutputDef;
-  params_schema: TransformParamDef[];
-  variadic?: boolean;
-}
-
-export interface TransformPortBinding {
-  port_key: string;
-  definition_id: string;
-  sub_key?: string;
+export interface TransformInputBinding {
+  role: string;
+  definitionId: string;
+  subKey?: string;
 }
 
 export interface TransformDef {
   id: string;
   name: string;
-  method_id: string;
-  source_ports: TransformPortBinding[];
-  derived_definition_id: string;
-  derived_name: string;
-  derived_unit?: string;
+  typeId: string;                 // transform class id, e.g. "linear" | "gearbox.output_speed"
+  inputs: TransformInputBinding[];
+  derivedDefId: string;           // definition id holding the derived output
+  derived: { name: string; unit: string | null };
   params: Record<string, unknown>;
-}
-
-export interface ValueTypeOutputDef {
-  key: string;
-  label: string;
-  data_type?: "number" | "text";
-}
-
-export interface ValueTypeDef {
-  id: string;
-  name: string;
-  description?: string;
-  params_schema: TransformParamDef[];
-  outputs: ValueTypeOutputDef[];
-}
-
-export interface StructParamDef {
-  key: string;
-  label: string;
-  type: "number" | "text" | "select" | "bool";
-  default?: unknown;
-  options?: string[];
-  required?: boolean;
-}
-
-export interface StructTypeDef {
-  id: string;
-  name: string;
-  description?: string;
-  category?: string;
-  params_schema: StructParamDef[];
 }
 
 export interface PlanDocument {
@@ -136,7 +69,4 @@ export interface PlanDocument {
   root: PlanNode[];
   templates: PlanTemplate[];
   transforms: TransformDef[];
-  value_types: ValueTypeDef[];
-  transform_methods: TransformMethodDef[];
-  struct_types: StructTypeDef[];
 }

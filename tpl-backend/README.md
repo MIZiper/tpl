@@ -26,7 +26,7 @@ tpl-backend/
     ├── main.py               # FastAPI app
     ├── config.py             # env config
     ├── db.py                 # asyncpg pool + UUID/JSONB codecs
-    ├── models.py             # Document + PlanDocument + ExecutionDoc schemas
+    ├── models.py             # Document + generic PlanDocument + ExecutionDoc schemas
     ├── routers/documents.py  # document + plan/execution-document endpoints
     ├── services/
     │   ├── documents_service.py  # documents CRUD
