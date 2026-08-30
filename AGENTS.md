@@ -2,10 +2,14 @@
 
 ## Project
 
-**Test Planner & Logger (TPL)** — A web-based tool for managing test plans, execution logging, risk tracking, and solution management.
+Monorepo with two independent web apps:
 
-- **Backend**: `tpl-backend/` — Python 3.12 + FastAPI + asyncpg + PostgreSQL
-- **Frontend**: `tpl-frontend/` — TypeScript + Svelte 5 + Vite + sv-router + Sveltestrap (Bootstrap 5)
+- **TPL — Test Planner & Logger** (`tpl-backend/` + `tpl-frontend/`): stores `plan_document` and `execution_document` as JSONB documents on a lightweight `documents` table.
+- **RSP — Risk/Solution/Project management** (`rsp-backend/` + `rsp-frontend/`): FMEA-based risk management (categories, causes, tags, RPN, applied solutions, effectiveness, lessons learned).
+
+- **Backend**: Python 3.12 + FastAPI + asyncpg + PostgreSQL, managed with **uv**
+- **Frontend**: TypeScript + Svelte 5 + Vite + sv-router + Sveltestrap (Bootstrap 5), managed with **pnpm**
+- **Database**: one PostgreSQL instance, two separate databases (`tpl`, `rsp`)
 
 ---
 
@@ -13,234 +17,121 @@
 
 ```
 tpl/
-├── tpl-backend/              # FastAPI backend
-│   ├── tpl/
-│   │   ├── main.py           # App entry, CORS, lifespan
-│   │   ├── config.py         # Config from env vars
-│   │   ├── db.py             # asyncpg pool + UUID/JSONB codecs
-│   │   ├── models.py         # Pydantic request/response schemas
-│   │   ├── services/         # Business logic (6 modules)
-│   │   ├── routers/          # API routers (6 modules)
-│   │   └── sql/              # DDL scripts (001_initial, 002_indexes)
-│   ├── pyproject.toml
-│   └── README.md
-├── tpl-frontend/             # Svelte 5 frontend
-│   ├── src/
-│   │   ├── router.ts         # 17 sv-router routes
-│   │   ├── components/       # Layout.svelte (Bootstrap 5 navbar)
-│   │   ├── pages/            # 12 page components
-│   │   ├── stores/           # 6 Svelte stores (runes + writable)
-│   │   ├── lib/
-│   │   │   ├── api/          # Fetch client + endpoint functions
-│   │   │   └── db/           # IndexedDB offline layer
-│   │   └── types/            # TypeScript interfaces
-│   ├── vite.config.ts        # Proxy /api → localhost:8000
-│   └── README.md
-└── README.md
+├── tpl-backend/              # FastAPI document app
+│   └── tpl/
+│       ├── main.py           # app entry, CORS
+│       ├── config.py         # DATABASE_URL default .../tpl
+│       ├── db.py             # asyncpg pool + UUID/JSONB codecs
+│       ├── models.py         # Document + PlanDocument + ExecutionDoc
+│       ├── routers/documents.py
+│       ├── services/         # documents / plan / execution
+│       └── sql/001_initial.sql
+├── tpl-frontend/             # Svelte 5 document UI
+│   └── src/
+│       ├── router.ts         # /documents, /documents/:id/plan, /documents/:id/logging
+│       ├── pages/            # Home, documents/, plan/, logging/
+│       ├── stores/           # documents, plan, execution
+│       ├── lib/              # api/, plan-utils, dynamic/struct/transform registries
+│       └── types/            # document, plan, execution
+├── rsp-backend/              # FastAPI risk management app
+│   └── src/rsp_backend/
+│       ├── main.py
+│       ├── config.py         # DATABASE_URL default .../rsp
+│       ├── db.py
+│       ├── models.py
+│       ├── routers/          # risks, solutions, projects, fmea, sync
+│       ├── services/         # risk / solution / project / fmea
+│       └── sql/              # 001_initial.sql, 002_indexes.sql
+├── rsp-frontend/             # Svelte 5 risk management UI
+│   └── src/
+│       ├── router.ts         # /blocks/risks, /blocks/solutions, /projects
+│       ├── pages/            # Home, risks/, solutions/, projects/
+│       ├── stores/           # risks, solutions, projects (online only)
+│       ├── lib/api/          # risksApi, solutionsApi, projectsApi, fmeaApi
+│       └── types/index.ts
+├── scripts/                  # setup-db.sh, test-integration.py
+├── backend/                  # legacy Python GUI app (untouched)
+├── frontend/                 # legacy node app (untouched)
+└── doc/                      # design docs
 ```
+
+Ports: tpl-backend `8000`, rsp-backend `8001`, tpl-frontend dev `5173`, rsp-frontend dev `5174`.
 
 ---
 
-## Database
+## TPL document model
 
-### Tables (10)
+- `documents` table: `id (UUID)`, `name`, `description`, `plan_document JSONB`, `execution_document JSONB`, timestamps.
+- `PlanDocument`: `{ version, definitions {input_conditions, collection_items, completion_criteria, custom}, root: PlanNode[], templates, transforms, dynamic_types, transform_methods, struct_types }`.
+  - `PlanNode`: `{ id, type(group|step), title, children[], duration_minutes, changeover_minutes, input_conditions[]/collection_items[]/completion_criteria[] (FieldBinding{definition_id, value, dynamic_type, dynamic_params}), system_config, required_executions, step_template_id, solution_step_id }`.
+- `ExecutionDoc`: `{ version, status(idle|in_progress|paused|completed), entries: ExecutionEntry[], pause_history[] }`.
+  - `ExecutionEntry`: `{ id, plan_step_id, step_title, type(planned|adhoc), required_executions, executions: ExecutionRun[], selected_bindings }`.
+  - `ExecutionRun`: `{ id, status(pending|in_progress|completed|skipped), started_at, completed_at, input_readings[], collection_results[], criteria_results[], notes }`.
 
-1. `risks` — Risk items (title, description, scope)
-2. `solutions` — Solution items (title, description, test_method, equipment)
-3. `solution_steps` — Steps within a solution (order_index, duration_estimate, criteria, params template)
-4. `solution_risks` — Many-to-many: solutions ↔ risks
-5. `projects` — Project entity (name, description)
-6. `project_risks` — Many-to-many: projects ↔ risks (CASCADE delete)
-7. `project_solutions` — Many-to-many: projects ↔ solutions
-8. `plan_groups` — Optional step grouping within a plan
-9. `plan_steps` — Independent copy of solution_steps within a plan context
-10. `step_executions` — Execution log (per step, per project, with status tracking)
+Endpoints (all under `/api`): documents CRUD, `GET/PUT .../plan-document`, `GET/PUT .../execution-document`, `POST .../execution-document/initialize`, `POST .../execution-document/adhoc`.
 
-### Key Design Decisions
-
-- **UUIDv7** as primary keys everywhere
-- **Plan initialization**: Copy `solution_steps` → `plan_steps` (independent data, no FK back to solutions)
-- **Risk↔Solution**: Many-to-many (a solution solves multiple risks, a risk has multiple solutions)
-- **Coverage tracking**: Auto-detect from execution history + manual override
-- **Single user**: No login/auth, but `user_id` fields reserved on all tables
-
-### Plan Document JSON Model (NEW)
-
-Plans are stored as a single `plan_document JSONB` on the `projects` table. The schema:
-
-```
-PlanDocument
-  ├── version: int (1)
-  ├── definitions: PlanDefinitions
-  │     ├── input_conditions: PlanFieldDef[]
-  │     ├── collection_items: PlanFieldDef[]
-  │     ├── completion_criteria: PlanFieldDef[]
-  │     └── custom: PlanFieldDef[]
-  ├── root: PlanNode[]           (tree — groups contain child steps/groups)
-  └── templates: PlanTemplate[]  (per-plan, reusable step presets)
-
-PlanFieldDef: { id, name, field_type (text|number|boolean|pass_fail|threshold|measurement), unit?, default_value? }
-PlanNode: { id, type (group|step), title, children[], description?, duration_minutes, changeover_minutes, input_conditions[], collection_items[], completion_criteria[], system_config?, required_executions }
-FieldBinding: { definition_id, value?, operator?, target_value? }
-PlanTemplate: { id, name, step: PlanNode }
-```
-
-**Endpoints**:
-- `GET /projects/{id}/plan-document` — load plan JSON
-- `PUT /projects/{id}/plan-document` — save plan JSON (full replace)
-- `POST /projects/{id}/plan/initialize` — convert solutions → PlanDocument JSON
-
-**Plan Editor** (three-panel layout):
-- Left (250px): tabs — Tree / Definitions / Templates
-- Center: canvas with recursive tree rendering + right-click context menu
-- Right (350px): Step detail editor with dynamic field bindings
-
-**Key files**:
-- `tpl-frontend/src/types/plan.ts` — TypeScript types
-- `tpl-frontend/src/stores/plan.ts` — writable store
-- `tpl-frontend/src/lib/plan-utils.ts` — tree manipulation (insert, remove, find, move, duplicate, export/import)
-- `tpl-frontend/src/pages/plan/PlanEditor.svelte` — main page
-- `tpl-frontend/src/pages/plan/PlanCanvas.svelte` — recursive tree
-- `tpl-frontend/src/pages/plan/PlanStepEditor.svelte` — detail editor
-- `tpl-backend/tpl/models.py` — PlanDocument Pydantic models
-- `tpl-backend/tpl/services/plan_service.py` — get/save/initialize
-- `tpl-backend/tpl/routers/projects.py` — plan-document endpoints
-
-**Old plan tables** (`plan_groups`, `plan_steps`) are deprecated but kept for backward compatibility.
-
-### Execution Document JSON Model (NEW)
-
-Execution logs are stored as a single `execution_document JSONB` on the `projects` table. The schema:
-
-```
-ExecutionDoc
-  ├── version: int (1)
-  ├── status: "idle" | "in_progress" | "paused" | "completed"
-  ├── entries: ExecutionEntry[]
-  │     ├── id, plan_step_id, step_title, type (planned|adhoc)
-  │     ├── status (pending|in_progress|completed|skipped)
-  │     ├── started_at, completed_at
-  │     ├── input_readings: ExecutionReading[]
-  │     ├── collection_results: ExecutionResult[]
-  │     ├── criteria_results: ExecutionCriteriaResult[]
-  │     ├── notes, required_executions, execution_number
-  └── pause_history: [{ paused_at, resumed_at?, reason? }]
-
-ExecutionReading: { definition_id, definition_name, value?, collected_at? }
-ExecutionResult: { definition_id, definition_name, result?, notes? }
-ExecutionCriteriaResult: { definition_id, definition_name, passed?, notes? }
-```
-
-**Endpoints**:
-- `GET /projects/{id}/execution-document` — load execution JSON
-- `PUT /projects/{id}/execution-document` — save execution JSON
-- `POST /projects/{id}/execution-document/initialize` — build entries from plan
-- `POST /projects/{id}/execution-document/start/{entry_id}` — start an entry
-- `POST /projects/{id}/execution-document/complete/{entry_id}` — complete with readings/results/criteria
-- `POST /projects/{id}/execution-document/skip/{entry_id}` — skip entry
-- `POST /projects/{id}/execution-document/pause` — pause execution (with optional reason)
-- `POST /projects/{id}/execution-document/resume` — resume execution
-- `POST /projects/{id}/execution-document/adhoc` — add ad-hoc entry
-
-**Logging UI** (two-panel layout):
-- Left (280px): step list with status badges (pending/active/done/skipped)
-- Right: detail panel showing plan-defined input conditions, measurement items, and completion criteria
-- Active step shows fillable inputs and Pass/Fail/Skip actions
-- Pause/Resume and Ad-hoc entry support
-
-**Key files**:
-- `tpl-frontend/src/types/execution.ts` — TypeScript types
-- `tpl-frontend/src/stores/execution.ts` — writable store
-- `tpl-frontend/src/pages/logging/LoggingMain.svelte` — interactive logging UI
-- `tpl-backend/tpl/services/execution_service.py` — get/save/init/start/complete/skip/pause/adhoc
-- `tpl-backend/tpl/routers/projects.py` — execution-document endpoints
+There is **no** initialize-from-solutions: plan documents are authored by hand in the plan editor. Offline = JSON export/import only.
 
 ---
 
-## API Endpoints (40+)
+## RSP unified schema (16 tables)
 
-| Router | Endpoints |
-|--------|-----------|
-| `risks` | GET/POST /risks, GET/PUT/DELETE /risks/{id} |
-| `solutions` | GET/POST /solutions, GET/PUT/DELETE /solutions/{id}, POST /solutions/{id}/steps, POST /solutions/{id}/risks, DELETE /solutions/{id}/risks/{risk_id} |
-| `projects` | GET/POST /projects, GET/PUT/DELETE /projects/{id}, POST /projects/{id}/risks, POST /projects/{id}/solutions, POST /projects/{id}/plan/initialize, GET /projects/{id}/plan, GET /projects/{id}/coverage |
-| `plan` | PUT /plan/steps/{id}, POST /plan/groups, PUT/DELETE /plan/groups/{id}, POST /plan/groups/{id}/steps |
-| `logging` | POST /projects/{id}/executions/start, POST /projects/{id}/executions/{eid}/complete, POST /projects/{id}/executions/{eid}/skip, GET /projects/{id}/executions/current, GET /projects/{id}/executions/history, POST /projects/{id}/executions/incident, POST /projects/{id}/executions/incident/{iid}/resolve, POST /projects/{id}/executions/adhoc, GET /projects/{id}/executions/stats |
-| `sync` | POST /sync, GET /recommendations |
-| `export` | GET /export/projects/{id} |
+| Table | Notes |
+|-------|-------|
+| `risk_categories` | name unique, description |
+| `risks` | code, category_id FK, title, description, scope, default_severity/occurrence/detection |
+| `risk_causes` | risk_id FK CASCADE, description |
+| `solutions` | code, title, description, test_method, equipment JSONB, cost_impact, weight_impact, complexity_level, verified |
+| `solution_risks` | PK(solution_id, risk_id), recommendation_level |
+| `solution_steps` | order_index, title, input_params_template JSONB, duration_estimate_minutes, data_to_collect JSONB, completion_criteria, equipment_needed JSONB |
+| `projects` | code, name, description, customer_name, platform, start/end_date, project_manager, status |
+| `product_models` | project_id FK CASCADE, code, name, revision, product_family |
+| `design_phases` | name unique, sequence_no |
+| `project_risks` | project_id+risk_id unique, model_id, phase_id, discovery_date, status, owner_name, severity/occurrence/detection, **rpn GENERATED ALWAYS AS (severity*occurrence*detection) STORED**, description, covered_by_previous, covering_solution_id |
+| `project_solutions` | project-level adopted solutions |
+| `applied_solutions` | project_risk_id FK CASCADE, solution_id, implementation_date, responsible_engineer, status |
+| `solution_effectiveness` | applied_id FK CASCADE, result_summary, risk_reduction_percent NUMERIC(5,2), actual_cost NUMERIC(18,2), comments |
+| `lessons_learned` | project_risk_id FK CASCADE, what_happened, root_cause, what_worked, what_failed, recommendation |
+| `risk_tags` / `risk_tag_mapping` | tag system |
+
+Coverage: `coverage_rate` = covered / total project_risks, where covered = `covered_by_previous` OR `covering_solution_id IS NOT NULL`.
 
 ---
 
-## Step Progression Logic
+## Key conventions / gotchas
 
-When a step execution completes:
-1. If the same step has remaining executions → create next execution for it
-2. Otherwise → find next step by `order_index` within same group or ungrouped
-3. Auto-create execution for next step (`_auto_start_next` in `logging_service.py`)
-
----
-
-## Known Fixes Applied
-
-1. **UUID codec**: Must use `create_pool(init=_init_connection)` to register codecs for every pool connection, not just the initial one (`db.py:11-27`)
-2. **JSONB codec**: Registered `decoder=json.loads` so JSONB auto-deserializes; services pre-serialize with `json.dumps()`
-3. **FK cascade**: `project_risks.risk_id` has `ON DELETE CASCADE` to allow clean project deletion
-4. **Auto-step SQL bug**: Fixed parameter index `$3` → `$2` in fallback query for ungrouped steps
-5. **Stats decimal**: Explicit `float()` and `str()` conversion for asyncpg types in stats aggregation
+1. **UUID/JSONB codecs**: asyncpg pool must use `init=_init_connection` so every pooled connection registers `uuid`→str and `jsonb`→json.loads codecs (`db.py`).
+2. **Generated column `rpn`**: never insert/update directly — exclude it in sync/import paths.
+3. **Sync timestamps**: `created_at`/`updated_at` are DB-managed; generic `/sync` excludes them from INSERT/UPDATE columns.
+4. **Postgres**: local test instance can be started with rootless podman, e.g. `podman run -e POSTGRES_PASSWORD=password -e POSTGRES_USER=postgres -d -p 5432:5432 postgres:16-alpine`, then `./scripts/setup-db.sh`.
+5. **Proxy**: the machine has a squid proxy (`http_proxy=http://192.168.1.10:3128`). Unset it for local dev/testing:
+   `unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY`
 
 ---
 
 ## Testing
 
 ```bash
-# Start backend
-cd tpl-backend && uv run uvicorn tpl.main:app --host 127.0.0.1 --port 8000
+# 1. Start both backends
+cd tpl-backend && uv run uvicorn tpl.main:app --port 8000
+cd rsp-backend && uv run uvicorn rsp_backend.main:app --port 8001
 
-# Start frontend
+# 2. Optionally start frontends
 cd tpl-frontend && pnpm dev
+cd rsp-frontend && pnpm dev
 
-# Run integration tests via curl/requests
-python3 << 'PYEOF'
-import urllib.request, json
-BASE = "http://127.0.0.1:8000/api"
-# ... see full test script in tpl-backend/README.md
-PYEOF
+# 3. Run integration tests
+python3 scripts/test-integration.py
 ```
 
-**Important**: The system has a squid proxy (`http_proxy=http://192.168.1.10:3128`). Unset it for local testing:
+## Development commands
+
 ```bash
-unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
+# Backends
+cd tpl-backend && uv run python -c "from tpl.main import app"
+cd rsp-backend && uv run python -c "from rsp_backend.main import app"
+
+# Frontends (type check + build)
+cd tpl-frontend && pnpm check && pnpm build
+cd rsp-frontend && pnpm check && pnpm build
 ```
-
----
-
-## State Management (Frontend)
-
-Svelte 5 runes + writable stores in `tpl-frontend/src/stores/`:
-
-| Store | Purpose |
-|-------|---------|
-| `offline.ts` | Online/offline state, pending sync queue, config from LocalStorage |
-| `risks.ts` | Risk CRUD with local-first (IndexedDB) fallback |
-| `solutions.ts` | Solution CRUD with step management |
-| `projects.ts` | Project CRUD with risk/solution association and coverage |
-| `plan.ts` | Plan tree (groups + steps), plan initialization from solutions |
-| `logging.ts` | Current step, execution actions, incident tracking, stats |
-
----
-
-## Offline Strategy
-
-- **Data**: IndexedDB via `src/lib/db/index.ts` (`put`, `get`, `getAll`, `delete`, `exportAll`, `importAll`)
-- **Config**: LocalStorage
-- **Sync**: Last-write-wins via timestamps on `POST /sync`
-- **Fetch wrapper**: `src/lib/api/client.ts` — proxies through Vite dev server, detects offline and queues requests
-
----
-
-## Current Status: Feature Complete
-
-- ✅ Backend: All 6 routers, all services, SQL schema, 40+ endpoints
-- ✅ Frontend: All 12 pages, 6 stores, API client, IndexedDB layer
-- ✅ All 13 integration tests passing (risk → solution → project → plan → execution → incident → stats → recommendations)
-- 🔜 Future: Gantt chart, statistics visualization, UI polish

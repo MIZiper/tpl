@@ -25,8 +25,9 @@ registerStructType({
   category: "mechanical",
   params_schema: [
     { key: "stages", label: "Number of stages", type: "number", default: 2 },
-    { key: "ratio_lss_hss", label: "LSS→HSS ratio", type: "number" },
-    { key: "ratio_ims", label: "IMS ratio", type: "number" },
+    { key: "ratio_ls", label: "Low speed stage ratio", type: "number" },
+    { key: "ratio_is", label: "Intermediate speed stage ratio", type: "number" },
+    { key: "ratio_hs", label: "High speed stage ratio", type: "number" },
     { key: "model", label: "Model / type name", type: "text" },
   ],
 });

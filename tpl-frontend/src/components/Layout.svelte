@@ -14,19 +14,10 @@
         <li class="nav-item">
           <a
             class="nav-link"
-            class:active={isActive.startsWith("/blocks")}
-            href={p("/blocks/risks")}
+            class:active={isActive.startsWith("/documents")}
+            href={p("/documents")}
           >
-            Building Blocks
-          </a>
-        </li>
-        <li class="nav-item">
-          <a
-            class="nav-link"
-            class:active={isActive.startsWith("/projects")}
-            href={p("/projects")}
-          >
-            Projects
+            Documents
           </a>
         </li>
       </ul>

@@ -1,62 +1,57 @@
 <script lang="ts">
   import { p } from "../router";
   import { onMount } from "svelte";
-  import { projectStore } from "../stores/projects";
-  import { isOnline } from "../stores/offline";
+  import { documentStore } from "../stores/documents";
 
-  let projects: { id: string; name: string; description: string | null }[] = $state([]);
+  let documents = $state<{ id: string; name: string; description: string | null }[]>([]);
 
   onMount(() => {
-    projectStore.load().then(() => {
-      const unsub = projectStore.subscribe((s) => {
-        projects = s.items;
+    documentStore.load().then(() => {
+      return documentStore.subscribe((s) => {
+        documents = s.items;
       });
-      return unsub;
     });
   });
 </script>
 
 <div>
   <h1 class="mb-4">TPL - Test Plan & Log</h1>
-
-  <div class="alert alert-info">
-    Status: <strong>{$isOnline ? "Online" : "Offline"}</strong>
-  </div>
+  <p class="text-muted">Store test plans and execution logs as JSON documents.</p>
 
   <div class="row mb-4">
     <div class="col-md-4">
       <div class="card">
         <div class="card-body">
-          <h5 class="card-title">Building Blocks</h5>
-          <p class="card-text">Define risk blocks and test solution blocks.</p>
-          <a href={p("/blocks/risks")} class="btn btn-primary">Open</a>
-        </div>
-      </div>
-    </div>
-    <div class="col-md-4">
-      <div class="card">
-        <div class="card-body">
-          <h5 class="card-title">Projects</h5>
-          <p class="card-text">Manage test projects, risks, and solutions.</p>
-          <a href={p("/projects")} class="btn btn-primary">Open</a>
+          <h5 class="card-title">Documents</h5>
+          <p class="card-text">Manage test plan and execution log documents.</p>
+          <a href={p("/documents")} class="btn btn-primary">Open</a>
         </div>
       </div>
     </div>
   </div>
 
-  {#if projects.length > 0}
-    <h3>Recent Projects</h3>
+  {#if documents.length > 0}
+    <h3>Recent Documents</h3>
     <div class="row">
-      {#each projects as project}
+      {#each documents as document}
         <div class="col-md-4 mb-3">
           <div class="card">
             <div class="card-body">
-              <h5 class="card-title">{project.name}</h5>
-              <p class="card-text">{project.description || ""}</p>
+              <h5 class="card-title">{document.name}</h5>
+              <p class="card-text text-muted">{document.description || ""}</p>
               <div class="btn-group">
-                <a href={p("/projects/:id", { params: { id: project.id } })} class="btn btn-sm btn-outline-primary">Details</a>
-                <a href={p("/projects/:id/plan", { params: { id: project.id } })} class="btn btn-sm btn-outline-secondary">Plan</a>
-                <a href={p("/projects/:id/logging", { params: { id: project.id } })} class="btn btn-sm btn-outline-success">Log</a>
+                <a
+                  href={p("/documents/:id/plan", { params: { id: document.id } })}
+                  class="btn btn-sm btn-outline-secondary"
+                >
+                  Plan
+                </a>
+                <a
+                  href={p("/documents/:id/logging", { params: { id: document.id } })}
+                  class="btn btn-sm btn-outline-success"
+                >
+                  Log
+                </a>
               </div>
             </div>
           </div>
@@ -64,6 +59,6 @@
       {/each}
     </div>
   {:else}
-    <p class="text-muted">No projects yet. <a href={p("/projects/new")}>Create one</a>.</p>
+    <p class="text-muted">No documents yet. <a href={p("/documents/new")}>Create one</a>.</p>
   {/if}
 </div>

@@ -10,7 +10,7 @@
                 "podman run -it --rm --name tpl_postgres",
                 "-e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=password -e POSTGRES_DB=tpl -p 5437:5432",
                 "-v ./tpl/sql/:/docker-entrypoint-initdb.d/",
-                "postgres"
+                "docker.io/library/postgres:18"
             ],
             "problemMatcher": []
         },
@@ -64,6 +64,69 @@
                 "(TPL) PostgreSQL",
                 "(TPL) backend",
                 "(TPL) frontend"
+            ],
+            "group": {
+                "kind": "build",
+            }
+        },
+        {
+            "label": "(RSP) PostgreSQL",
+            "type": "shell",
+            "command": [
+                "cd rsp-backend/",
+                "&&",
+                "podman run -it --rm --name rsp_postgres",
+                "-e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=password -e POSTGRES_DB=rsp -p 5439:5432",
+                "-v ./src/rsp_backend/sql/:/docker-entrypoint-initdb.d/",
+                "docker.io/library/postgres:18"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "(RSP) backend",
+            "type": "shell",
+            "command": [
+                "cd rsp-backend/",
+                "&&",
+                "until pg_isready -h localhost -p 5439; do echo 'Waiting for Postgres...'; sleep 1; done",
+                "&&",
+                "uv run uvicorn --reload --port=8039 rsp_backend.main:app"
+            ],
+            "problemMatcher": [
+                "$python"
+            ],
+            "options": {
+                "env": {
+                    "DATABASE_URL": "postgresql://postgres:password@localhost:5439/rsp"
+                }
+            }
+        },
+        {
+            "label": "(RSP) frontend",
+            "type": "shell",
+            "command": [
+                "cd rsp-frontend/",
+                "&&",
+                "until /bin/nc -z localhost 8039; do sleep 1; done",
+                "&&",
+                "pnpm run dev --port 5139 --open",
+            ],
+            "options": {
+                "env": {
+                    "VITE_API_PORT": "8039"
+                }
+            },
+            "problemMatcher": [
+                "$tsc"
+            ]
+        },
+        {
+            "label": "🚀 RSP",
+            "dependsOrder": "parallel",
+            "dependsOn": [
+                "(RSP) PostgreSQL",
+                "(RSP) backend",
+                "(RSP) frontend"
             ],
             "group": {
                 "kind": "build",

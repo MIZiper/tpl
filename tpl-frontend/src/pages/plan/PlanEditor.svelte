@@ -6,7 +6,6 @@
     selectedNode,
     loadDoc,
     saveDoc,
-    initDoc,
     selectNode,
     addStep,
     addGroup,
@@ -35,7 +34,6 @@
 
   let leftTab = $state<"tree" | "definitions" | "templates" | "transforms">("tree");
   let contextMenu = $state<{ x: number; y: number; nodeId: string | null; parentId: string | null; index: number } | null>(null);
-  let showInitModal = $state(false);
   let showDefForm = $state(false);
   let defCategory: keyof PlanDefinitions = $state<keyof PlanDefinitions>("input_conditions");
   let newDef = $state({ name: "", data_type: "text" as PlanFieldDef["data_type"], unit: null as string | null, optionsText: "" });
@@ -169,7 +167,6 @@
 
   function catLab(c: keyof PlanDefinitions) { return { input_conditions: "Input Conditions", collection_items: "Measurement Items", completion_criteria: "Completion Criteria", custom: "Custom" }[c]; }
   function tLab(t: string) { return { text: "Text", number: "Number", select: "Select", bool: "True/False", struct: "Struct" }[t] || t; }
-  function hasC(d: PlanDocument | null) { return !!(d && (d.root.length > 0 || d.definitions.input_conditions.length > 0 || d.templates.length > 0 || d.transforms.length > 0)); }
   function metaHas(m: PlanFieldDef["meta"]): boolean { return !!(m && (m.start != null || m.stop != null || m.step != null || m.options?.length || m.tolerance_plus != null || m.tolerance_minus != null || m.reference_value != null || m.number_kind || m.struct_type_id)); }
 
   function isDerivedDef(doc: PlanDocument | null, defId: string): boolean {
@@ -210,7 +207,7 @@
 
 <div class="plan-editor">
   <div class="plan-toolbar">
-    <a href={p("/projects/:id", { params: { id } })} class="btn btn-sm btn-outline-secondary">Back</a>
+    <a href={p("/documents/:id", { params: { id } })} class="btn btn-sm btn-outline-secondary">Back</a>
     <span class="flex-grow-1"></span>
     {#if $planState.dirty}
       <button class="btn btn-sm btn-success" onclick={() => saveDoc(id, planApi.saveDocument)}>Save *</button>
@@ -219,9 +216,6 @@
       <button class="btn btn-sm btn-outline-success ms-1" onclick={exportJSON}>Export</button>
     {/if}
     <label class="btn btn-sm btn-outline-info ms-1">Import<input type="file" accept=".json" class="d-none" onchange={handleImport} /></label>
-    {#if !hasC($planState.document)}
-      <button class="btn btn-sm btn-primary ms-1" onclick={() => (showInitModal = true)}>Init</button>
-    {/if}
   </div>
 
   {#if $planState.loading}
@@ -536,8 +530,8 @@
 
       <!-- Center -->
       <div class="plan-center" oncontextmenu={(e) => { e.preventDefault(); ctxMenu(e, null, null, 0); }} onclick={closeCtx} role="presentation">
-        {#if !hasC(doc)}
-          <div class="plan-empty"><div class="mb-3 text-muted">Plan is empty</div><button class="btn btn-outline-primary me-2" onclick={() => addStep(null, 0)}>+ Step</button><button class="btn btn-outline-secondary me-2" onclick={() => addGroup(null, 0)}>+ Group</button><br /><button class="btn btn-primary mt-2" onclick={() => (showInitModal = true)}>Initialize from Solutions</button></div>
+        {#if !$planState.document || ($planState.document.root.length === 0 && $planState.document.definitions.input_conditions.length === 0 && $planState.document.definitions.collection_items.length === 0 && $planState.document.definitions.completion_criteria.length === 0)}
+          <div class="plan-empty"><div class="mb-3 text-muted">Plan is empty</div><button class="btn btn-outline-primary me-2" onclick={() => addStep(null, 0)}>+ Step</button><button class="btn btn-outline-secondary me-2" onclick={() => addGroup(null, 0)}>+ Group</button></div>
         {:else}
           <PlanCanvas nodes={doc.root} selectedNodeId={selId} parentId={null} definitions={doc.definitions} onContextMenu={ctxMenu} onselect={selectNode} />
         {/if}
@@ -568,16 +562,6 @@
         {/if}
       </div>
     </div>
-  {/if}
-
-  {#if showInitModal}
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="modal-backdrop" onclick={() => (showInitModal = false)}></div>
-    <div class="modal d-block" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
-      <div class="modal-header"><h5 class="modal-title">Initialize Plan</h5><button class="btn-close" onclick={() => (showInitModal = false)}></button></div>
-      <div class="modal-body"><p>Convert all project solutions and their steps into the plan document.</p></div>
-      <div class="modal-footer"><button class="btn btn-secondary" onclick={() => (showInitModal = false)}>Cancel</button><button class="btn btn-primary" onclick={() => { showInitModal = false; initDoc(id, planApi.initialize); }}>Initialize</button></div>
-    </div></div></div>
   {/if}
 </div>
 

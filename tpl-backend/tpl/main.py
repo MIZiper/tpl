@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from tpl.db import close_pool, get_pool
-from tpl.routers import projects, risks, solutions, plan, logging, sync
+from tpl.routers import documents
 
 
 @asynccontextmanager
@@ -24,12 +24,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(risks.router, prefix="/api")
-app.include_router(solutions.router, prefix="/api")
-app.include_router(projects.router, prefix="/api")
-app.include_router(plan.router, prefix="/api")
-app.include_router(logging.router, prefix="/api")
-app.include_router(sync.router, prefix="/api")
+app.include_router(documents.router, prefix="/api")
 
 
 @app.get("/api/health")

@@ -7,7 +7,7 @@ from tpl.models import ExecutionDoc, ExecutionEntry, ExecutionRun
 
 
 async def get_execution_doc(db: Connection, project_id: str) -> ExecutionDoc:
-    row = await db.fetchrow("SELECT execution_document FROM projects WHERE id = $1", project_id)
+    row = await db.fetchrow("SELECT execution_document FROM documents WHERE id = $1", project_id)
     if row and row["execution_document"] is not None:
         return ExecutionDoc.model_validate(row["execution_document"])
     return ExecutionDoc()
@@ -15,7 +15,7 @@ async def get_execution_doc(db: Connection, project_id: str) -> ExecutionDoc:
 
 async def save_execution_doc(db: Connection, project_id: str, doc: ExecutionDoc) -> None:
     await db.execute(
-        "UPDATE projects SET execution_document = $1, updated_at = NOW() WHERE id = $2",
+        "UPDATE documents SET execution_document = $1, updated_at = NOW() WHERE id = $2",
         json.dumps(doc.model_dump()),
         project_id,
     )
@@ -27,7 +27,7 @@ def _new_id() -> str:
 
 
 async def init_execution_doc(db: Connection, project_id: str) -> ExecutionDoc:
-    plan_row = await db.fetchrow("SELECT plan_document FROM projects WHERE id = $1", project_id)
+    plan_row = await db.fetchrow("SELECT plan_document FROM documents WHERE id = $1", project_id)
     if plan_row and plan_row["plan_document"]:
         plan = plan_row["plan_document"]
         entries: list[ExecutionEntry] = []
