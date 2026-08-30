@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { PlanNode, PlanDefinitions, PlanFieldDef, FieldBinding, TransformDef } from "../../types/plan";
-  import type { ExecutionReading } from "../../types/execution";
-  import { formatDynamic, getDynamicTypes } from "../../lib/dynamic-registry";
+  import { formatValue, getValueTypes } from "../../lib/value-type-registry";
   import { parseNum, parseNumInt, computeDerivedValues } from "../../lib/plan-utils";
 
   let {
@@ -45,11 +44,11 @@
   
   const liveXformValues = $derived.by(() => {
     if (!definitions || !transforms.length) return { byTfId: {} as Record<string, number | null>, byDefId: {} as Record<string, number | null> };
-    const readings: ExecutionReading[] = [
-      ...node.input_conditions.map(b => ({ definition_id: b.definition_id, definition_name: '', value: b.value })),
-      ...node.collection_items.map(b => ({ definition_id: b.definition_id, definition_name: '', value: b.value })),
+    const bindings: FieldBinding[] = [
+      ...node.input_conditions,
+      ...node.collection_items,
     ];
-    const derived = computeDerivedValues(transforms, readings, definitions);
+    const derived = computeDerivedValues(transforms, bindings, definitions);
     const byTfId: Record<string, number | null> = {};
     const byDefId: Record<string, number | null> = {};
     const tfMap = new Map(transforms.map(tf => [tf.id, tf.derived_definition_id]));
@@ -98,14 +97,7 @@
   function defSummary(f: PlanFieldDef): string {
     if (f.data_type === "bool") return "Pass / Fail";
     if (f.data_type === "select") return `Options: ${(f.meta?.options ?? []).join(", ") || "—"}`;
-    if (f.data_type === "number") {
-      const parts: string[] = [];
-      if (f.unit) parts.push(f.unit);
-      if (f.meta?.tolerance_plus != null) parts.push(`±${f.meta.tolerance_plus}`);
-      if (f.meta?.reference_value != null) parts.push(`ref: ${f.meta.reference_value}`);
-      if (f.meta?.start != null) parts.push(`[${f.meta.start}→${f.meta.stop}]`);
-      return `Number${parts.length ? ` (${parts.join(", ")})` : ""}`;
-    }
+    if (f.data_type === "number") return `Number${f.unit ? ` (${f.unit})` : ""}`;
     if (f.data_type === "struct") return `Struct: ${f.meta?.struct_type_id ?? "?"}`;
     if (f.data_type === "text") return "Text";
     return f.data_type;
@@ -119,16 +111,16 @@
     onupdate({ [cat]: node[cat].filter((b) => b.definition_id !== defId) });
   }
 
-  const dynTypes = $derived(getDynamicTypes());
+  const valueTypes = $derived(getValueTypes());
 
-  function updateDynamicParams(binding: FieldBinding, cat: "input_conditions" | "collection_items" | "completion_criteria", key: string, value: unknown) {
-    const params = { ...(binding.dynamic_params ?? {}) };
+  function updateValueParams(binding: FieldBinding, cat: "input_conditions" | "collection_items" | "completion_criteria", key: string, value: unknown) {
+    const params = { ...(binding.value_params ?? {}) };
     if (value === null || value === undefined || value === "") {
       delete params[key];
     } else {
       params[key] = value;
     }
-    updateBinding(cat, binding.definition_id, { dynamic_params: params });
+    updateBinding(cat, binding.definition_id, { value_params: params });
   }
 </script>
 
@@ -212,7 +204,7 @@
               {#each definitions[cat] as f (f.id)}
                 {@const binding = node[cat].find(b => b.definition_id === f.id)}
                 {#if binding}
-                  {@const isDynamic = !!binding.dynamic_type}
+                  {@const isValueTyped = !!binding.value_type}
                   {@const derivedXforms = xformsForDef(f.id)}
                   {@const isDerived = isDerivedDef(f.id)}
                   {@const hasReadouts = derivedXforms.length > 0 && !isDerived}
@@ -221,16 +213,16 @@
                       <div class="d-flex align-items-center">
                         <span class="binding-name">{f.name}</span>
                         {#if f.unit}<small class="text-muted ms-1">({f.unit})</small>{/if}
-                        {#if isDynamic}<span class="badge bg-info ms-1">Dynamic</span>{/if}
+                        {#if isValueTyped}<span class="badge bg-info ms-1">Value type</span>{/if}
                         {#if isDerived}<span class="badge bg-secondary ms-1">Computed</span>{/if}
                       </div>
                       <button class="btn btn-sm btn-close-sm" onclick={() => removeBinding(cat, f.id)} title="Remove binding">&times;</button>
                     </div>
                     {#if cat === "input_conditions"}
                       <div class="binding-value mt-1">
-                        {#if isDerived && binding.value == null && !isDynamic}
+                        {#if isDerived && binding.value == null && !isValueTyped}
                           <div class="text-muted small mb-1">
-                            Computed via {derivedXforms.map(t => t.derived_name || defName(t.derived_definition_id)).join(", ")}
+                            Computed via {derivedXforms.map(t => t.name).join(", ")}
                             {#if liveXformValues.byDefId[f.id] != null}
                               <span class="ms-1 fw-bold">= {liveXformValues.byDefId[f.id]}</span>
                             {/if}
@@ -248,58 +240,6 @@
                               <option value={opt}>{opt}</option>
                             {/each}
                           </select>
-                        {:else if f.data_type === "number"}
-                          <div class="d-flex gap-1 align-items-center">
-                            <input type="number" class="form-control form-control-sm" value={binding.value ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; updateBinding(cat, f.id, { value: v !== "" ? parseNum(v) : null }); }} placeholder="Value" />
-                            {#if f.meta?.tolerance_plus != null}<small class="text-muted text-nowrap">±{f.meta.tolerance_plus}{f.meta.tolerance_minus != null ? `/${f.meta.tolerance_minus}` : ""}{f.unit ? ` ${f.unit}` : ""}</small>{/if}
-                            {#if f.meta?.reference_value != null}<small class="text-muted text-nowrap">ref: {f.meta.reference_value}{f.unit ? ` ${f.unit}` : ""}</small>{/if}
-                            {#if f.meta?.start != null}<small class="text-muted text-nowrap">{f.meta.start}→{f.meta.stop} step {f.meta.step}{f.unit ? ` ${f.unit}` : ""}</small>{/if}
-                            <button class="btn btn-sm btn-outline-info" class:active={isDynamic} onclick={() => {
-                              if (isDynamic) {
-                                updateBinding(cat, f.id, { dynamic_type: undefined, dynamic_params: undefined });
-                              } else {
-                                updateBinding(cat, f.id, { dynamic_type: "constant", dynamic_params: {} });
-                              }
-                            }} title="Toggle dynamic input">Dyn</button>
-                          </div>
-                        {:else}
-                          <div class="d-flex gap-1">
-                            <input type="text" class="form-control form-control-sm" value={binding.value ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; updateBinding(cat, f.id, { value: v || null }); }} placeholder="Value" />
-                            <button class="btn btn-sm btn-outline-info" class:active={isDynamic} onclick={() => {
-                              if (isDynamic) {
-                                updateBinding(cat, f.id, { dynamic_type: undefined, dynamic_params: undefined });
-                              } else {
-                                updateBinding(cat, f.id, { dynamic_type: "constant", dynamic_params: {} });
-                              }
-                            }} title="Toggle dynamic input">Dyn</button>
-                          </div>
-                        {/if}
-
-                        <!-- Dynamic config panel -->
-                        {#if isDynamic}
-                          <div class="dynamic-config mt-2">
-                            <select class="form-select form-select-sm mb-1" value={binding.dynamic_type ?? "constant"} onchange={(e) => {
-                              const dt = (e.target as HTMLSelectElement).value;
-                              updateBinding(cat, f.id, { dynamic_type: dt });
-                            }}>
-                              <option value="constant">Constant (no params)</option>
-                              {#each dynTypes.filter(d => d.id !== "constant") as dt}
-                                <option value={dt.id}>{dt.name}</option>
-                              {/each}
-                            </select>
-                            {#if binding.dynamic_type && binding.dynamic_type !== "constant"}
-                              {@const selectedDyn = dynTypes.find(d => d.id === binding.dynamic_type)}
-                              {#if selectedDyn?.params_schema && selectedDyn.params_schema.length > 0}
-                                <div class="dynamic-params-grid">
-                                  {#each selectedDyn.params_schema as p (p.key)}
-                                    <div class="dynamic-param-row">
-                                      <label class="small mb-0">{p.label}</label>
-                                      {#if p.type === "number"}
-                                        <input type="number" class="form-control form-control-sm" value={binding.dynamic_params?.[p.key] ?? p.default ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; updateDynamicParams(binding, cat, p.key, v !== "" ? parseNum(v) : null); }} step="any" />
-                                      {:else if p.type === "select" && p.options}
-                                        <select class="form-select form-select-sm" value={String(binding.dynamic_params?.[p.key] ?? p.default ?? "")} onchange={(e) => { const v = (e.target as HTMLSelectElement).value; updateDynamicParams(binding, cat, p.key, v || null); }}>
-                                          {#each p.options as opt}<option value={opt}>{opt}</option>{/each}
-                                        </select>
                         {:else if f.data_type === "struct"}
                           <div class="text-muted small">
                             {f.meta?.struct_type_id ?? "?"}
@@ -310,16 +250,52 @@
                               {/if}
                             {/if}
                           </div>
-                        {:else}
-                                        <input type="text" class="form-control form-control-sm" value={binding.dynamic_params?.[p.key] ?? p.default ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; updateDynamicParams(binding, cat, p.key, v || null); }} />
-                                      {/if}
-                                    </div>
-                                  {/each}
-                                </div>
-                              {/if}
-                              <small class="text-muted d-block mt-1">{formatDynamic(binding.dynamic_type, binding.dynamic_params ?? {})}</small>
+                        {:else if f.data_type === "number"}
+                          {@const vt = isValueTyped ? valueTypes.find(v => v.id === binding.value_type) : null}
+                          <div class="d-flex gap-1 align-items-center mb-1">
+                            <select class="form-select form-select-sm" style="max-width:150px" value={binding.value_type ?? ""} onchange={(e) => {
+                              const v = (e.target as HTMLSelectElement).value;
+                              if (!v) {
+                                updateBinding(cat, f.id, { value_type: undefined, value_params: undefined });
+                              } else {
+                                updateBinding(cat, f.id, { value_type: v, value_params: {} });
+                              }
+                            }}>
+                              <option value="">Plain number</option>
+                              {#each valueTypes.filter(x => x.id !== "plain") as vt2 (vt2.id)}
+                                <option value={vt2.id}>{vt2.name}</option>
+                              {/each}
+                            </select>
+                            {#if vt}
+                              <small class="text-muted text-nowrap">{formatValue(binding.value_type!, binding.value_params ?? {})}</small>
                             {/if}
                           </div>
+                          {#if vt}
+                            {#if vt.params_schema.length > 0}
+                              <div class="dynamic-params-grid">
+                                {#each vt.params_schema as p (p.key)}
+                                  <div class="dynamic-param-row">
+                                    <label class="small mb-0">{p.label}</label>
+                                    {#if p.type === "number"}
+                                      <input type="number" class="form-control form-control-sm" step="any" value={binding.value_params?.[p.key] ?? p.default ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; updateValueParams(binding, cat, p.key, v !== "" ? parseNum(v) : null); }} />
+                                    {:else if p.type === "select" && p.options}
+                                      <select class="form-select form-select-sm" value={String(binding.value_params?.[p.key] ?? p.default ?? "")} onchange={(e) => { const v = (e.target as HTMLSelectElement).value; updateValueParams(binding, cat, p.key, v || null); }}>
+                                        {#each p.options as opt}<option value={opt}>{opt}</option>{/each}
+                                      </select>
+                                    {:else}
+                                      <input type="text" class="form-control form-control-sm" value={binding.value_params?.[p.key] ?? p.default ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; updateValueParams(binding, cat, p.key, v || null); }} />
+                                    {/if}
+                                  </div>
+                                {/each}
+                              </div>
+                            {:else}
+                              <input type="number" class="form-control form-control-sm" value={binding.value_params?.value ?? binding.value ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; updateValueParams(binding, cat, "value", v !== "" ? parseNum(v) : null); }} placeholder="Value" />
+                            {/if}
+                          {:else}
+                            <input type="number" class="form-control form-control-sm" value={binding.value ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; updateBinding(cat, f.id, { value: v !== "" ? parseNum(v) : null }); }} placeholder="Value" />
+                          {/if}
+                        {:else}
+                          <input type="text" class="form-control form-control-sm" value={binding.value ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; updateBinding(cat, f.id, { value: v || null }); }} placeholder="Value" />
                         {/if}
 
                         <!-- Derived transforms (auto-computed outputs) -->

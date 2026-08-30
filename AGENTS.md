@@ -62,8 +62,10 @@ Ports: tpl-backend `8000`, rsp-backend `8001`, tpl-frontend dev `5173`, rsp-fron
 ## TPL document model
 
 - `documents` table: `id (UUID)`, `name`, `description`, `plan_document JSONB`, `execution_document JSONB`, timestamps.
-- `PlanDocument`: `{ version, definitions {input_conditions, collection_items, completion_criteria, custom}, root: PlanNode[], templates, transforms, dynamic_types, transform_methods, struct_types }`.
-  - `PlanNode`: `{ id, type(group|step), title, children[], duration_minutes, changeover_minutes, input_conditions[]/collection_items[]/completion_criteria[] (FieldBinding{definition_id, value, dynamic_type, dynamic_params}), system_config, required_executions, step_template_id, solution_step_id }`.
+- `PlanDocument`: `{ version, definitions {input_conditions, collection_items, completion_criteria, custom}, root: PlanNode[], templates, transforms, value_types, transform_methods, struct_types }`.
+  - `PlanNode`: `{ id, type(group|step), title, children[], duration_minutes, changeover_minutes, input_conditions[]/collection_items[]/completion_criteria[] (FieldBinding{definition_id, value, value_type, value_params}), system_config, required_executions, step_template_id, solution_step_id }`.
+  - `PlanFieldDef` is a pure type: `{ id, name, data_type(number|text|select|bool|struct), unit, meta{options, struct_type_id, struct_params}, derived }`. Numeric shape is NOT on the def — it lives on the binding as `value_type` (plain/deviation/percentage/sinusoidal/ramp) + `value_params`.
+  - `TransformDef`: `{ id, name, method_id, source_ports[{port_key, definition_id, sub_key}], derived_definition_id, derived_name, derived_unit, params }`. `TransformMethodDef` declares typed input ports (`inputs: [{key, kind(fielddef|struct), data_type?, struct_type_id?}]`) and an `output {data_type}`. Evaluators receive `Record<portKey, value>`; composite value types expose named sub-values (e.g. `range.start`) selectable via `sub_key`.
 - `ExecutionDoc`: `{ version, status(idle|in_progress|paused|completed), entries: ExecutionEntry[], pause_history[] }`.
   - `ExecutionEntry`: `{ id, plan_step_id, step_title, type(planned|adhoc), required_executions, executions: ExecutionRun[], selected_bindings }`.
   - `ExecutionRun`: `{ id, status(pending|in_progress|completed|skipped), started_at, completed_at, input_readings[], collection_results[], criteria_results[], notes }`.

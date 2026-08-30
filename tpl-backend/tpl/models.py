@@ -51,8 +51,8 @@ class PlanDefinitions(BaseModel):
 class FieldBinding(BaseModel):
     definition_id: str
     value: Any | None = None
-    dynamic_type: str | None = None
-    dynamic_params: dict[str, Any] | None = None
+    value_type: str | None = None
+    value_params: dict[str, Any] | None = None
 
 
 class PlanNode(BaseModel):
@@ -87,30 +87,58 @@ class TransformParamDef(BaseModel):
     required: bool = False
 
 
+class TransformInputPortDef(BaseModel):
+    key: str
+    label: str = ""
+    kind: str = "fielddef"
+    data_type: str | None = None
+    struct_type_id: str | None = None
+
+
+class TransformOutputDef(BaseModel):
+    data_type: str = "number"
+
+
 class TransformMethodDef(BaseModel):
     id: str
     name: str
     description: str | None = None
     category: str | None = None
+    inputs: list[TransformInputPortDef] = Field(default_factory=list)
+    output: TransformOutputDef = Field(default_factory=TransformOutputDef)
     params_schema: list[TransformParamDef] = Field(default_factory=list)
+    variadic: bool = False
+
+
+class TransformPortBinding(BaseModel):
+    port_key: str
+    definition_id: str
+    sub_key: str | None = None
 
 
 class TransformDef(BaseModel):
     id: str
     name: str
     method_id: str
-    source_definition_ids: list[str] = Field(default_factory=list)
+    source_ports: list[TransformPortBinding] = Field(default_factory=list)
     derived_definition_id: str
     derived_name: str = ""
     derived_unit: str | None = None
     params: dict[str, Any] = Field(default_factory=dict)
 
 
-class DynamicTypeDef(BaseModel):
+class ValueTypeOutputDef(BaseModel):
+    key: str
+    label: str = ""
+    data_type: str | None = None
+
+
+class ValueTypeDef(BaseModel):
     id: str
     name: str
     description: str | None = None
     params_schema: list[TransformParamDef] = Field(default_factory=list)
+    outputs: list[ValueTypeOutputDef] = Field(default_factory=list)
 
 
 class StructParamDef(BaseModel):
@@ -136,7 +164,7 @@ class PlanDocument(BaseModel):
     root: list[PlanNode] = Field(default_factory=list)
     templates: list[PlanTemplate] = Field(default_factory=list)
     transforms: list[TransformDef] = Field(default_factory=list)
-    dynamic_types: list[DynamicTypeDef] = Field(default_factory=list)
+    value_types: list[ValueTypeDef] = Field(default_factory=list)
     transform_methods: list[TransformMethodDef] = Field(default_factory=list)
     struct_types: list[StructTypeDef] = Field(default_factory=list)
 

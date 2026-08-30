@@ -1,7 +1,7 @@
 import type { TransformMethodDef, TransformParamDef, PlanDocument } from "../types/plan";
 
 export type TransformEvaluator = (
-  sourceValues: Record<string, unknown>,
+  inputs: Record<string, unknown>,
   params: Record<string, unknown>
 ) => unknown;
 
@@ -29,28 +29,39 @@ export function getTransformMethod(id: string): TransformMethodDef | undefined {
 
 export function evaluateTransform(
   methodId: string,
-  sourceValues: Record<string, unknown>,
+  inputs: Record<string, unknown>,
   params: Record<string, unknown>
 ): unknown {
   const entry = registry.get(methodId);
   if (!entry) return null;
-  return entry.evaluator(sourceValues, params);
+  return entry.evaluator(inputs, params);
 }
 
 export function loadTransformMethodsFromDoc(doc: PlanDocument) {
   for (const tm of doc.transform_methods || []) {
     if (!registry.has(tm.id)) {
-      registry.set(tm.id, { method: tm, evaluator: () => null });
+      registry.set(tm.id, {
+        method: {
+          ...tm,
+          inputs: tm.inputs ?? [],
+          output: tm.output ?? { data_type: "number" },
+        },
+        evaluator: () => null,
+      });
     }
   }
 }
 
+// Formula — evaluate an arithmetic expression. Port keys become variable names.
 registerTransform(
   {
     id: "formula",
     name: "Formula",
-    description: "Evaluate an arithmetic expression with named variables mapped to source definitions",
+    description: "Evaluate an arithmetic expression. Each input port becomes a named variable usable in the expression.",
     category: "arithmetic",
+    inputs: [],
+    output: { data_type: "number" },
+    variadic: true,
     params_schema: [
       {
         key: "expression",
@@ -58,24 +69,15 @@ registerTransform(
         type: "text",
         required: true,
       },
-      {
-        key: "variables",
-        label: "Variable Mappings",
-        type: "text",
-        required: true,
-      },
     ],
   },
-  (sourceValues, params) => {
+  (inputs, params) => {
     const expr = String(params.expression ?? "");
     if (!expr) return null;
     try {
-      const vars: Record<string, string> =
-        (params.variables as Record<string, string>) ?? {};
-      const keys = Object.keys(vars);
+      const keys = Object.keys(inputs);
       const values = keys.map((k) => {
-        const defId = vars[k];
-        const val = sourceValues[defId];
+        const val = inputs[k];
         return val != null ? Number(val) : 0;
       });
       return new Function(...keys, `return (${expr})`)(...values);
@@ -85,12 +87,17 @@ registerTransform(
   }
 );
 
+// Linear — result = source * factor + offset.
 registerTransform(
   {
     id: "linear",
     name: "Linear Conversion",
     description: "Convert a source value using factor and offset: result = source * factor + offset",
     category: "conversion",
+    inputs: [
+      { key: "value", label: "Source value", kind: "fielddef", data_type: "number" },
+    ],
+    output: { data_type: "number" },
     params_schema: [
       {
         key: "factor",
@@ -107,21 +114,26 @@ registerTransform(
       },
     ],
   },
-  (sourceValues, params) => {
+  (inputs, params) => {
     const factor = Number(params.factor ?? 1);
     const offset = Number(params.offset ?? 0);
-    const primaryValue = Object.values(sourceValues)[0];
+    const primaryValue = inputs["value"];
     if (primaryValue == null) return null;
     return Number(primaryValue) * factor + offset;
   }
 );
 
+// Lookup — map source value to result using a key-value table.
 registerTransform(
   {
     id: "lookup",
     name: "Lookup Table",
-    description: "Map source value to result using a key-value table",
+    description: "Map a source value to a result using a key-value table",
     category: "mapping",
+    inputs: [
+      { key: "key", label: "Lookup key", kind: "fielddef", data_type: "number" },
+    ],
+    output: { data_type: "number" },
     params_schema: [
       {
         key: "table",
@@ -131,12 +143,12 @@ registerTransform(
       },
     ],
   },
-  (sourceValues, params) => {
+  (inputs, params) => {
     const table = params.table as [unknown, unknown][] | undefined;
     if (!table || !Array.isArray(table)) return null;
-    const primaryValue = String(Object.values(sourceValues)[0] ?? "");
+    const key = String(inputs["key"] ?? "");
     for (const [k, v] of table) {
-      if (String(k) === primaryValue) return v;
+      if (String(k) === key) return v;
     }
     return null;
   }

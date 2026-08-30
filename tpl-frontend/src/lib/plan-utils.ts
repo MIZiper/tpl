@@ -1,6 +1,14 @@
-import type { PlanNode, PlanDocument, PlanDefinitions, PlanFieldDef, FieldBinding, TransformDef } from "../types/plan";
+import type {
+  PlanNode,
+  PlanDocument,
+  PlanDefinitions,
+  PlanFieldDef,
+  FieldBinding,
+  TransformDef,
+} from "../types/plan";
 import type { ExecutionReading } from "../types/execution";
 import { evaluateTransform } from "./transform-registry";
+import { hasValueType, resolveSubValues, type ValueContext } from "./value-type-registry";
 
 let _counter = 0;
 const prefix = Math.random().toString(36).slice(2, 8);
@@ -12,7 +20,7 @@ export function generateId(): string {
 
 export function createDefaultDocument(): PlanDocument {
   return {
-    version: 2,
+    version: 3,
     definitions: {
       input_conditions: [],
       collection_items: [],
@@ -22,7 +30,7 @@ export function createDefaultDocument(): PlanDocument {
     root: [],
     templates: [],
     transforms: [],
-    dynamic_types: [],
+    value_types: [],
     transform_methods: [],
     struct_types: [],
   };
@@ -282,10 +290,32 @@ export function getDerivedDefinitions(defs: PlanDefinitions): PlanFieldDef[] {
   return all.filter((d) => d.derived === true);
 }
 
+export function resolveBindingValue(
+  binding: FieldBinding,
+  def: PlanFieldDef | undefined,
+  subKey: string | undefined,
+  ctx: ValueContext = {}
+): unknown {
+  if (def?.data_type === "struct") {
+    const structObj = {
+      struct_type_id: def.meta?.struct_type_id ?? null,
+      params: def.meta?.struct_params ?? {},
+    };
+    return subKey ? structObj.params[subKey] : structObj;
+  }
+  if (binding.value_type && hasValueType(binding.value_type)) {
+    const values = resolveSubValues(binding.value_type, binding.value_params ?? {}, ctx);
+    const key = subKey ?? "value";
+    return key in values ? values[key] : values["value"];
+  }
+  return binding.value ?? null;
+}
+
 export function computeDerivedValues(
   transforms: TransformDef[],
-  sourceReadings: ExecutionReading[],
-  definitions: PlanDefinitions
+  bindings: FieldBinding[],
+  definitions: PlanDefinitions,
+  ctx: ValueContext = {}
 ): ExecutionReading[] {
   if (!transforms.length) return [];
 
@@ -299,29 +329,28 @@ export function computeDerivedValues(
   const defById = new Map<string, PlanFieldDef>();
   for (const d of allDefs) defById.set(d.id, d);
 
-  const readingByDefId: Record<string, unknown> = {};
-  for (const r of sourceReadings) readingByDefId[r.definition_id] = r.value;
+  const bindingByDefId = new Map<string, FieldBinding>();
+  for (const b of bindings) bindingByDefId.set(b.definition_id, b);
 
-  const sorted = topologicalSortTransforms(transforms, defById);
-  const computedByTfId: Record<string, unknown> = {};
+  const sorted = topologicalSortTransforms(transforms);
+  const computedByDefId: Record<string, unknown> = {};
 
   const results: ExecutionReading[] = [];
   for (const t of sorted) {
-    const sourceValues: Record<string, unknown> = {};
-    for (const sid of t.source_definition_ids) {
-      const srcVal = computedByTfId[sid] ?? readingByDefId[sid] ?? null;
-      sourceValues[sid] = srcVal;
-      const def = defById.get(sid);
-      if (def?.meta?.struct_type_id) {
-        sourceValues[`${sid}__struct`] = {
-          struct_type_id: def.meta.struct_type_id,
-          params: def.meta.struct_params ?? {},
-        };
+    const inputs: Record<string, unknown> = {};
+    for (const port of t.source_ports) {
+      const srcVal = computedByDefId[port.definition_id] ?? null;
+      if (srcVal != null) {
+        inputs[port.port_key] = srcVal;
+      } else {
+        const binding = bindingByDefId.get(port.definition_id);
+        const def = defById.get(port.definition_id);
+        inputs[port.port_key] = binding ? resolveBindingValue(binding, def, port.sub_key, ctx) : null;
       }
     }
 
-    const computed = evaluateTransform(t.method_id, sourceValues, t.params);
-    computedByTfId[t.derived_definition_id] = computed;
+    const computed = evaluateTransform(t.method_id, inputs, t.params);
+    computedByDefId[t.derived_definition_id] = computed;
     const defName = t.derived_name || defById.get(t.derived_definition_id)?.name || t.name;
     results.push({
       definition_id: t.id,
@@ -333,10 +362,7 @@ export function computeDerivedValues(
   return results;
 }
 
-function topologicalSortTransforms(
-  transforms: TransformDef[],
-  _defById: Map<string, PlanFieldDef>
-): TransformDef[] {
+function topologicalSortTransforms(transforms: TransformDef[]): TransformDef[] {
   const tfById = new Map<string, TransformDef>();
   const incoming = new Map<string, number>();
   const adjacency = new Map<string, string[]>();
@@ -348,8 +374,8 @@ function topologicalSortTransforms(
   }
 
   for (const t of transforms) {
-    for (const sid of t.source_definition_ids) {
-      const srcTf = transforms.find(tf => tf.derived_definition_id === sid);
+    for (const port of t.source_ports) {
+      const srcTf = transforms.find(tf => tf.derived_definition_id === port.definition_id);
       if (srcTf && tfById.has(srcTf.id)) {
         const deps = adjacency.get(srcTf.id)!;
         deps.push(t.id);

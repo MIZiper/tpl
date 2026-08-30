@@ -67,6 +67,28 @@ def main():
     plan2, _ = call("GET", f"{TPL}/documents/{did}/plan-document")
     check("tpl: save+get plan document", plan2["root"][0]["children"][0]["required_executions"] == 2)
 
+    # value_type + typed transform round-trip
+    plan2["definitions"]["input_conditions"][0]["meta"] = None
+    plan2["root"][0]["children"][0]["input_conditions"][0] = {
+        "definition_id": def_id, "value": None,
+        "value_type": "ramp", "value_params": {"start_value": 0, "end_value": 100, "duration_seconds": 60},
+    }
+    plan2["value_types"] = [{"id": "ramp", "name": "Ramp", "params_schema": [], "outputs": [{"key": "value"}]}]
+    plan2["transforms"] = [{
+        "id": "tf-1", "name": "Mid", "method_id": "linear",
+        "source_ports": [{"port_key": "value", "definition_id": def_id, "sub_key": "start_value"}],
+        "derived_definition_id": "def-derived-1", "derived_name": "Mid", "params": {"factor": 0.5, "offset": 0},
+    }]
+    call("PUT", f"{TPL}/documents/{did}/plan-document", {"document": plan2})
+    plan3, _ = call("GET", f"{TPL}/documents/{did}/plan-document")
+    b = plan3["root"][0]["children"][0]["input_conditions"][0]
+    check("tpl: value_type round-trip",
+          b["value_type"] == "ramp" and b["value_params"]["end_value"] == 100)
+    check("tpl: typed transform round-trip",
+          plan3["transforms"][0]["source_ports"][0]["sub_key"] == "start_value")
+    check("tpl: value_types round-trip",
+          plan3["value_types"][0]["id"] == "ramp")
+
     edoc, s = call("POST", f"{TPL}/documents/{did}/execution-document/initialize")
     check("tpl: init execution doc from plan",
           s == 200 and len(edoc["entries"]) == 1 and edoc["entries"][0]["step_title"] == "Measure torque")

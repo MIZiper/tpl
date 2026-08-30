@@ -1,12 +1,5 @@
 export interface PlanFieldDefMeta {
-  number_kind?: "range" | "deviation" | "percentage";
-  start?: number;
-  stop?: number;
-  step?: number;
   options?: string[];
-  tolerance_plus?: number;
-  tolerance_minus?: number;
-  reference_value?: number;
   struct_type_id?: string;
   struct_params?: Record<string, unknown>;
 }
@@ -30,8 +23,8 @@ export interface PlanDefinitions {
 export interface FieldBinding {
   definition_id: string;
   value: unknown;
-  dynamic_type?: string;
-  dynamic_params?: Record<string, unknown>;
+  value_type?: string;
+  value_params?: Record<string, unknown>;
 }
 
 export interface PlanNode {
@@ -66,30 +59,58 @@ export interface TransformParamDef {
   required?: boolean;
 }
 
+export interface TransformInputPortDef {
+  key: string;
+  label: string;
+  kind: "fielddef" | "struct";
+  data_type?: "number" | "text" | "select" | "bool";
+  struct_type_id?: string;
+}
+
+export interface TransformOutputDef {
+  data_type: "number" | "text";
+}
+
 export interface TransformMethodDef {
   id: string;
   name: string;
   description?: string;
   category?: string;
+  inputs: TransformInputPortDef[];
+  output: TransformOutputDef;
   params_schema: TransformParamDef[];
+  variadic?: boolean;
+}
+
+export interface TransformPortBinding {
+  port_key: string;
+  definition_id: string;
+  sub_key?: string;
 }
 
 export interface TransformDef {
   id: string;
   name: string;
   method_id: string;
-  source_definition_ids: string[];
+  source_ports: TransformPortBinding[];
   derived_definition_id: string;
   derived_name: string;
   derived_unit?: string;
   params: Record<string, unknown>;
 }
 
-export interface DynamicTypeDef {
+export interface ValueTypeOutputDef {
+  key: string;
+  label: string;
+  data_type?: "number" | "text";
+}
+
+export interface ValueTypeDef {
   id: string;
   name: string;
   description?: string;
   params_schema: TransformParamDef[];
+  outputs: ValueTypeOutputDef[];
 }
 
 export interface StructParamDef {
@@ -115,7 +136,7 @@ export interface PlanDocument {
   root: PlanNode[];
   templates: PlanTemplate[];
   transforms: TransformDef[];
-  dynamic_types: DynamicTypeDef[];
+  value_types: ValueTypeDef[];
   transform_methods: TransformMethodDef[];
   struct_types: StructTypeDef[];
 }

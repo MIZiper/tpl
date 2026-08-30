@@ -31,10 +31,10 @@ tpl-frontend/src/
 │   └── execution.ts          # ExecutionDoc store
 ├── lib/
 │   ├── api/                  # documentsApi / planApi / executionApi
-│   ├── plan-utils.ts         # tree utils, transform evaluation
-│   ├── dynamic-registry.ts   # dynamic input types
+│   ├── plan-utils.ts         # tree utils, value/transform evaluation, doc normalization
+│   ├── value-type-registry.ts # binding-level value types (range/deviation/percentage/waveforms)
 │   ├── struct-registry.ts    # struct types
-│   └── transform-registry.ts # derived-value transforms
+│   └── transform-registry.ts # typed transform methods (input ports + output)
 └── types/
     ├── document.ts
     ├── plan.ts
