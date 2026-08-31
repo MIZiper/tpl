@@ -49,7 +49,7 @@ def main():
 
     def_id = "def-input-1"
     plan["definitions"]["input_conditions"].append(
-        {"id": def_id, "name": "Ambient Temp", "typeId": "number", "unit": "C", "params": {}}
+        {"id": def_id, "name": "Ambient Temp", "typeId": "number", "params": {"unit": "C"}}
     )
     plan["root"] = [{
         "id": "group-1", "type": "group", "title": "Drivetrain", "children": [{

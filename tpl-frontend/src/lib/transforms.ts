@@ -4,6 +4,7 @@
 // transformable channels (duration, frequency, struct fields) pass through.
 import { Value, DerivedValue, PlainValue, StructValue, type NamedValue } from "./values";
 import { GearboxStruct } from "./structs";
+import type { ParamSpec } from "./params";
 
 export interface PortSpec {
   role: string;
@@ -12,15 +13,6 @@ export interface PortSpec {
   fieldType?: string;
   structType?: string;
   variadic?: boolean;
-}
-
-export interface ParamSpec {
-  key: string;
-  label: string;
-  type: "number" | "text" | "select";
-  default?: unknown;
-  options?: string[];
-  required?: boolean;
 }
 
 export class Transform {

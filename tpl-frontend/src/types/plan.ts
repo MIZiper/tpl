@@ -5,8 +5,7 @@ export interface PlanFieldDef {
   id: string;
   typeId: string;                 // field type id: number | text | select | bool | struct
   name: string;
-  unit: string | null;
-  params: Record<string, unknown>; // select: {options}; struct: {structTypeId, ...fields}
+  params: Record<string, unknown>; // number: {unit}; select: {options}; bool: {criteria}; struct: {structTypeId, ...fields}
   derived?: boolean;
 }
 

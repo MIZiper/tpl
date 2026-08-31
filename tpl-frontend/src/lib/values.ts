@@ -4,6 +4,7 @@
 // Non-transformable features (duration, frequency, struct fields) are
 // passed through unchanged.
 import { getStructType, type StructType } from "./structs";
+import type { ParamSpec } from "./params";
 import type { PlanFieldDef, FieldBinding } from "../types/plan";
 
 export interface NamedValue {
@@ -13,18 +14,10 @@ export interface NamedValue {
   transformable?: boolean;
 }
 
-export interface ValueParamSpec {
-  key: string;
-  label: string;
-  type: "number" | "text" | "select";
-  default?: unknown;
-  options?: string[];
-}
-
 export class Value {
   static readonly typeId: string = "value";
   static readonly displayName: string = "Value";
-  static readonly paramsSchema: ValueParamSpec[] = [];
+  static readonly paramsSchema: ParamSpec[] = [];
 
   constructor(public params: Record<string, unknown> = {}) {}
 
@@ -36,7 +29,7 @@ export class Value {
     return (this.constructor as typeof Value).displayName;
   }
 
-  get paramsSchema(): ValueParamSpec[] {
+  get paramsSchema(): ParamSpec[] {
     return (this.constructor as typeof Value).paramsSchema;
   }
 
@@ -44,6 +37,12 @@ export class Value {
     return [];
   }
 
+  // describe(): customizable summary of the configured value (editor hints).
+  describe(): string {
+    return this.display();
+  }
+
+  // display(): renders the current characteristic values (readouts).
   display(): string {
     const vs = this.values().filter((v) => v.value != null && v.value !== "");
     if (vs.length === 0) return "—";
@@ -72,6 +71,10 @@ export class PlainValue extends Value {
   values(): NamedValue[] {
     return [{ name: "value", value: this.scalarValue }];
   }
+
+  display(): string {
+    return this.scalarValue == null ? "—" : `${this.scalarValue}`;
+  }
 }
 
 // Ramp — a range of characteristic values (start → end) with a duration that is
@@ -79,7 +82,7 @@ export class PlainValue extends Value {
 export class RampValue extends Value {
   static readonly typeId: string = "ramp";
   static readonly displayName: string = "Ramp";
-  static readonly paramsSchema: ValueParamSpec[] = [
+  static readonly paramsSchema: ParamSpec[] = [
     { key: "start_value", label: "Start Value", type: "number", default: 0 },
     { key: "end_value", label: "End Value", type: "number", default: 100 },
     { key: "duration_seconds", label: "Duration (s)", type: "number", default: null },
@@ -95,13 +98,21 @@ export class RampValue extends Value {
       { name: "duration_seconds", value: dur == null || dur === "" ? null : Number(dur), transformable: false },
     ];
   }
+
+  display(): string {
+    const s = this.params.start_value;
+    const e = this.params.end_value;
+    const d = this.params.duration_seconds;
+    const base = `${s ?? "—"} → ${e ?? "—"}`;
+    return d != null && d !== "" ? `${base} over ${d}s` : base;
+  }
 }
 
 // Deviation — nominal value with separate + and - tolerances.
 export class DeviationValue extends Value {
   static readonly typeId: string = "deviation";
   static readonly displayName: string = "Deviation";
-  static readonly paramsSchema: ValueParamSpec[] = [
+  static readonly paramsSchema: ParamSpec[] = [
     { key: "value", label: "Nominal", type: "number", default: 0 },
     { key: "tolerance_plus", label: "Tolerance +", type: "number", default: null },
     { key: "tolerance_minus", label: "Tolerance -", type: "number", default: null },
@@ -117,13 +128,24 @@ export class DeviationValue extends Value {
       { name: "tolerance_minus", value: tm == null || tm === "" ? null : Number(tm) },
     ];
   }
+
+  display(): string {
+    const value = this.params.value ?? 0;
+    const tp = this.params.tolerance_plus;
+    const tm = this.params.tolerance_minus;
+    const parts = [String(value)];
+    if (tp != null && tp !== "" && tm != null && tm !== "") parts.push(`+${tp}/-${tm}`);
+    else if (tp != null && tp !== "") parts.push(`+${tp}`);
+    else if (tm != null && tm !== "") parts.push(`-${tm}`);
+    return parts.join(" ");
+  }
 }
 
 // Percentage — value expressed as a percentage of a reference.
 export class PercentageValue extends Value {
   static readonly typeId: string = "percentage";
   static readonly displayName: string = "Percentage";
-  static readonly paramsSchema: ValueParamSpec[] = [
+  static readonly paramsSchema: ParamSpec[] = [
     { key: "value", label: "Percentage (%)", type: "number", default: 100 },
     { key: "reference", label: "Reference", type: "number", default: null },
   ];
@@ -136,6 +158,14 @@ export class PercentageValue extends Value {
       { name: "reference", value: reference == null || reference === "" ? null : Number(reference) },
     ];
   }
+
+  display(): string {
+    const value = this.params.value ?? 0;
+    const reference = this.params.reference;
+    let s = `${value}%`;
+    if (reference != null && reference !== "") s += ` of ${reference}`;
+    return s;
+  }
 }
 
 // Sinusoidal — static characteristic set (amplitude/offset transformable,
@@ -143,7 +173,7 @@ export class PercentageValue extends Value {
 export class SinusoidalValue extends Value {
   static readonly typeId: string = "sinusoidal";
   static readonly displayName: string = "Sinusoidal";
-  static readonly paramsSchema: ValueParamSpec[] = [
+  static readonly paramsSchema: ParamSpec[] = [
     { key: "amplitude", label: "Amplitude", type: "number", default: 0 },
     { key: "frequency", label: "Frequency (Hz)", type: "number", default: 60 },
     { key: "offset", label: "Offset (DC)", type: "number", default: 0 },
@@ -158,6 +188,17 @@ export class SinusoidalValue extends Value {
       { name: "frequency", value: Number(freq), transformable: false },
       { name: "offset", value: Number(offset) },
     ];
+  }
+
+  display(): string {
+    const amp = this.params.amplitude ?? 0;
+    const freq = this.params.frequency ?? 0;
+    const offset = this.params.offset ?? 0;
+    const parts: string[] = [];
+    if (Number(offset) !== 0) parts.push(String(offset));
+    parts.push(`±${amp}`);
+    if (Number(freq) > 0) parts.push(`${freq}Hz`);
+    return parts.join(" ");
   }
 }
 
@@ -192,6 +233,12 @@ export class StructValue extends Value {
       transformable: false,
     }));
   }
+
+  display(): string {
+    const s = this.values().filter((v) => v.value !== "" && v.value != null);
+    if (!s.length) return this.structTypeId;
+    return `${this.structTypeId} (${s.map((v) => `${v.name}:${v.value}`).join(", ")})`;
+  }
 }
 
 // DerivedValue — maps characteristic values from its inputs; composable.
@@ -210,6 +257,13 @@ export class DerivedValue extends Value {
   values(): NamedValue[] {
     return this.compute();
   }
+
+  display(): string {
+    const vs = this.values().filter((v) => v.value != null && v.value !== "");
+    if (vs.length === 0) return "—";
+    if (vs.length === 1) return vs[0].unit ? `${vs[0].value} ${vs[0].unit}` : `${vs[0].value}`;
+    return vs.map((v) => `${v.value}${v.unit ? ` ${v.unit}` : ""}`).join(", ");
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -219,7 +273,7 @@ export class DerivedValue extends Value {
 export interface ValueCtor {
   readonly typeId: string;
   readonly displayName: string;
-  readonly paramsSchema: ValueParamSpec[];
+  readonly paramsSchema: ParamSpec[];
   new (...args: any[]): Value;
 }
 

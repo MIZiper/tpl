@@ -23,7 +23,7 @@
     importJSON,
   } from "../../stores/plan";
   import { planApi } from "../../lib/api";
-  import { getFieldTypes, getFieldType } from "../../lib/fieldtypes";
+  import { getFieldTypes, getFieldType, defUnit } from "../../lib/fieldtypes";
   import { getStructTypes, getStructType } from "../../lib/structs";
   import { getTransforms, getTransform, type PortSpec } from "../../lib/transforms";
   import { generateId } from "../../lib/plan-utils";
@@ -44,7 +44,8 @@
   let contextMenu = $state<{ x: number; y: number; nodeId: string | null; parentId: string | null; index: number } | null>(null);
   let showDefForm = $state(false);
   let defCategory: keyof PlanDefinitions = $state<keyof PlanDefinitions>("input_conditions");
-  let newDef = $state({ name: "", typeId: "text" as string, unit: null as string | null, optionsText: "" });
+  let newDef = $state({ name: "", typeId: "text" as string });
+  let newDefParams = $state<Record<string, unknown>>({});
   let structTypeId = $state("");
   let structParamValues = $state<Record<string, unknown>>({});
   let newTemplateName = $state("");
@@ -95,15 +96,25 @@
   }
 
   function resetDefForm() {
-    newDef = { name: "", typeId: "text", unit: null, optionsText: "" };
+    newDef = { name: "", typeId: "text" };
+    newDefParams = {};
     structTypeId = ""; structParamValues = {};
   }
 
   function addNewDef() {
     if (!newDef.name) return;
+    const ft = getFieldType(newDef.typeId);
     const params: Record<string, unknown> = {};
-    if (newDef.typeId === "select" && newDef.optionsText.trim()) {
-      params.options = newDef.optionsText.split(/[\n,]/).map(s => s.trim()).filter(Boolean);
+    if (ft?.paramsSchema?.length) {
+      for (const p of ft.paramsSchema) {
+        const v = newDefParams[p.key];
+        if (v == null || v === "") continue;
+        if (p.type === "number") params[p.key] = Number(v);
+        else if (p.type === "textlist") {
+          const items = String(v).split(/[\n,]/).map(s => s.trim()).filter(Boolean);
+          if (items.length) params[p.key] = items;
+        } else params[p.key] = v;
+      }
     }
     if (newDef.typeId === "struct" && structTypeId) {
       params.structTypeId = structTypeId;
@@ -111,7 +122,7 @@
         if (v !== undefined && v !== "") params[k] = v;
       }
     }
-    addDef(defCategory, { typeId: newDef.typeId, name: newDef.name, unit: newDef.unit, params });
+    addDef(defCategory, { typeId: newDef.typeId, name: newDef.name, params });
     resetDefForm();
     showDefForm = false;
   }
@@ -155,7 +166,7 @@
       targetDefId = generateId();
       doc.definitions.input_conditions.push({
         id: targetDefId, typeId: "number", name: newTargetName,
-        unit: newTargetUnit || null, params: {}, derived: true,
+        params: newTargetUnit ? { unit: newTargetUnit } : {}, derived: true,
       });
     }
     if (!targetDefId) return;
@@ -221,7 +232,6 @@
   }
 
   function catLab(c: keyof PlanDefinitions) { return { input_conditions: "Input Conditions", collection_items: "Measurement Items", completion_criteria: "Completion Criteria", custom: "Custom" }[c]; }
-  function tLab(tid: string): string { return getFieldType(tid)?.displayName ?? tid; }
 
   function isDerivedDef(doc: PlanDocument | null, defId: string): boolean {
     if (!doc) return false;
@@ -307,7 +317,7 @@
                     <div class="def-item">
                       <div class="flex-grow-1">
                         <span class="me-1">{f.name}</span>
-                        <small class="text-muted">({tLab(f.typeId)}{f.typeId === "struct" ? ` · ${String(f.params.structTypeId ?? "?")}` : ""}{f.unit ? `, ${f.unit}` : ""}{f.typeId === "select" ? `, ${(f.params.options as string[] | undefined)?.length ?? 0}opts` : ""})</small>
+                        <small class="text-muted">({getFieldType(f.typeId)?.describe(f.params) ?? f.typeId})</small>
                         {#if f.typeId === "struct" && f.params.structTypeId}
                           <br /><small class="text-muted">{JSON.stringify(Object.fromEntries(Object.entries(f.params).filter(([k]) => k !== "structTypeId")))}</small>
                         {/if}
@@ -319,20 +329,33 @@
                   {#if doc.definitions[cat].length === 0}<div class="text-muted" style="font-size:0.8rem">None</div>{/if}
 
                   {#if showDefForm && defCategory === cat}
+                    {@const ft = getFieldType(newDef.typeId)}
                     <div class="card card-body mb-2 bg-light">
                       <div class="mb-2"><input class="form-control form-control-sm" placeholder="Name" bind:value={newDef.name} /></div>
                       <div class="mb-2">
                         <select class="form-select form-select-sm" bind:value={newDef.typeId}>
-                          {#each getFieldTypes() as ft (ft.typeId)}
-                            <option value={ft.typeId}>{ft.displayName}</option>
+                          {#each getFieldTypes() as f2 (f2.typeId)}
+                            <option value={f2.typeId}>{f2.displayName}</option>
                           {/each}
                         </select>
                       </div>
-                      <div class="mb-2"><input class="form-control form-control-sm" placeholder="Unit" bind:value={newDef.unit} /></div>
 
-                      {#if newDef.typeId === "select"}
-                        <div class="mb-2"><textarea class="form-control form-control-sm" rows="2" placeholder="Options (one per line or comma-separated)" bind:value={newDef.optionsText}></textarea></div>
-                      {/if}
+                      {#each (ft?.paramsSchema ?? []) as p (p.key)}
+                        <div class="mb-2">
+                          <label class="form-label small mb-0">{p.label}</label>
+                          {#if p.type === "number"}
+                            <input type="number" class="form-control form-control-sm" step="any" value={String(newDefParams[p.key] ?? p.default ?? "")} oninput={(e) => { const v = (e.target as HTMLInputElement).value; newDefParams = { ...newDefParams, [p.key]: v }; }} />
+                          {:else if p.type === "select" && p.options}
+                            <select class="form-select form-select-sm" value={String(newDefParams[p.key] ?? p.default ?? "")} onchange={(e) => { newDefParams = { ...newDefParams, [p.key]: (e.target as HTMLSelectElement).value }; }}>
+                              {#each p.options as opt}<option value={opt}>{opt}</option>{/each}
+                            </select>
+                          {:else if p.type === "textlist"}
+                            <textarea class="form-control form-control-sm" rows="2" placeholder="{p.label} (one per line or comma-separated)" value={String(newDefParams[p.key] ?? "")} oninput={(e) => { newDefParams = { ...newDefParams, [p.key]: (e.target as HTMLTextAreaElement).value }; }}></textarea>
+                          {:else}
+                            <input type="text" class="form-control form-control-sm" value={String(newDefParams[p.key] ?? "")} oninput={(e) => { newDefParams = { ...newDefParams, [p.key]: (e.target as HTMLInputElement).value }; }} />
+                          {/if}
+                        </div>
+                      {/each}
 
                       {#if newDef.typeId === "struct"}
                         {@const structTypes = getStructTypes()}
@@ -436,7 +459,7 @@
                           <select class="form-select form-select-sm" value={inp?.definitionId ?? ""} onchange={(e) => updateInput(newTransform.inputs.findIndex(i => i.role === port.role), { definitionId: (e.target as HTMLSelectElement).value })}>
                             <option value="">-- select --</option>
                             {#each candidates as d (d.id)}
-                              <option value={d.id}>{d.name}{d.unit ? ` (${d.unit})` : ""}{isDerivedDef(doc, d.id) ? " [computed]" : ""}</option>
+                              <option value={d.id}>{d.name}{defUnit(d) ? ` (${defUnit(d)})` : ""}{isDerivedDef(doc, d.id) ? " [computed]" : ""}</option>
                             {/each}
                           </select>
                           {#if candidates.length === 0}

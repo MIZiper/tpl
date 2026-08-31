@@ -5,6 +5,7 @@
   import { executionApi, planApi } from "../../lib/api";
   import { findNode, generateId, computeStepOutputs, parseNum } from "../../lib/plan-utils";
   import { createValue, createBindingValue, PlainValue, getValueType, type Value } from "../../lib/values";
+  import { defUnit } from "../../lib/fieldtypes";
   import type { ExecutionEntry, ExecutionRun } from "../../types/execution";
   import type { PlanNode, PlanFieldDef, FieldBinding } from "../../types/plan";
   import LogStepTree from "./LogStepTree.svelte";
@@ -96,13 +97,13 @@
 
   const adhocBindings = $derived((selEntry?.type === "adhoc" && plan && selEntry.selected_bindings) ? {
     input_conditions: (selEntry.selected_bindings.input_conditions || []).map(id =>
-      plan.definitions.input_conditions.find(d => d.id === id) || { id, typeId: "text", name: "", unit: null, params: {} }
+      plan.definitions.input_conditions.find(d => d.id === id) || { id, typeId: "text", name: "", params: {} }
     ).map(d => ({ definition_id: d.id, value: null })),
     collection_items: (selEntry.selected_bindings.collection_items || []).map(id =>
-      plan.definitions.collection_items.find(d => d.id === id) || { id, typeId: "text", name: "", unit: null, params: {} }
+      plan.definitions.collection_items.find(d => d.id === id) || { id, typeId: "text", name: "", params: {} }
     ).map(d => ({ definition_id: d.id, value: null })),
     completion_criteria: (selEntry.selected_bindings.completion_criteria || []).map(id =>
-      plan.definitions.completion_criteria.find(d => d.id === id) || { id, typeId: "text", name: "", unit: null, params: {} }
+      plan.definitions.completion_criteria.find(d => d.id === id) || { id, typeId: "text", name: "", params: {} }
     ).map(d => ({ definition_id: d.id, value: null })),
   } : null);
 
@@ -520,7 +521,7 @@
                           {#if vt}<span class="badge bg-info ms-1">{vt.displayName}</span>{/if}
                           {#if isDerived}<span class="badge bg-secondary ms-1">Computed</span>{/if}
                         </div>
-                        {#if d?.unit}<small class="text-muted">{d.unit}</small>{/if}
+                        {#if defUnit(d)}<small class="text-muted">{defUnit(d)}</small>{/if}
                         {#if vt && value}<small class="text-muted d-block">{value.display()}</small>{/if}
 
                         {#if isDerived}
@@ -578,7 +579,7 @@
                       {@const val = measValues[b.definition_id]}
                       <div class="field-block measurement">
                         <div class="field-block-label">{d?.name || b.definition_id.slice(0,8)}</div>
-                        {#if d?.unit}<small class="text-muted">{d.unit}</small>{/if}
+                        {#if defUnit(d)}<small class="text-muted">{defUnit(d)}</small>{/if}
                           {#if run && !saved}
                             <div class="mt-1">
                               {#if d?.typeId === "bool"}
@@ -589,7 +590,7 @@
                               {:else if d?.typeId === "number"}
                                 <div class="input-group input-group-sm">
                                   <input type="number" class="form-control form-control-sm" placeholder="Value" value={val ?? ""} oninput={(e) => measValues = { ...measValues, [b.definition_id]: (e.target as HTMLInputElement).value }} />
-                                  {#if d?.unit}<span class="input-group-text">{d.unit}</span>{/if}
+                                  {#if defUnit(d)}<span class="input-group-text">{defUnit(d)}</span>{/if}
                                 </div>
                               {:else}
                                 <input type="text" class="form-control form-control-sm" placeholder="Value" value={val ?? ""} oninput={(e) => measValues = { ...measValues, [b.definition_id]: (e.target as HTMLInputElement).value }} />
@@ -725,7 +726,7 @@
                       adhocInputs = checked ? [...adhocInputs, f.id] : adhocInputs.filter(x => x !== f.id);
                       if (!checked) { delete adhocInputValues[f.id]; adhocInputValues = Object.fromEntries(Object.entries(adhocInputValues)); }
                     }} />
-                    <span>{f.name}{#if f.unit} <small class="text-muted">({f.unit})</small>{/if}</span>
+                    <span>{f.name}{#if defUnit(f)} <small class="text-muted">({defUnit(f)})</small>{/if}</span>
                   </label>
                   {#if adhocInputs.includes(f.id)}
                     {#if f.typeId === "select" && (f.params.options as string[] | undefined)?.length}
@@ -764,7 +765,7 @@
                       const checked = (e.target as HTMLInputElement).checked;
                       adhocMeasurements = checked ? [...adhocMeasurements, f.id] : adhocMeasurements.filter(x => x !== f.id);
                     }} />
-                    <span>{f.name}{#if f.unit} <small class="text-muted">({f.unit})</small>{/if}</span>
+                    <span>{f.name}{#if defUnit(f)} <small class="text-muted">({defUnit(f)})</small>{/if}</span>
                   </label>
                 </div>
               {/each}
@@ -781,7 +782,7 @@
                       const checked = (e.target as HTMLInputElement).checked;
                       adhocCriteria = checked ? [...adhocCriteria, f.id] : adhocCriteria.filter(x => x !== f.id);
                     }} />
-                    <span>{f.name}{#if f.unit} <small class="text-muted">({f.unit})</small>{/if}</span>
+                    <span>{f.name}{#if defUnit(f)} <small class="text-muted">({defUnit(f)})</small>{/if}</span>
                   </label>
                 </div>
               {/each}

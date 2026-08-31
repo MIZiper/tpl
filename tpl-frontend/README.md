@@ -32,8 +32,9 @@ tpl-frontend/src/
 ├── lib/
 │   ├── api/                  # documentsApi / planApi / executionApi
 │   ├── plan-utils.ts         # tree utils, transform graph evaluation
-│   ├── fieldtypes.ts         # definition kinds (number/text/select/bool/struct)
-│   ├── values.ts             # binding value classes (characteristic set, display, transformable flags)
+│   ├── params.ts             # shared ParamSpec (number/text/textlist/select)
+│   ├── fieldtypes.ts         # definition kinds (+ paramsSchema, describe, defUnit)
+│   ├── values.ts             # binding value classes (characteristic set, describe/display)
 │   ├── structs.ts            # struct classes (GearboxStruct / ProductStruct)
 │   └── transforms.ts         # typed transform classes (per-channel mapping)
 └── types/

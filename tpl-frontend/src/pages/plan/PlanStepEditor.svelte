@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { PlanNode, PlanDefinitions, PlanFieldDef, FieldBinding, TransformDef } from "../../types/plan";
   import { getValueTypes, getValueType, createBindingValue, type Value } from "../../lib/values";
+  import { getFieldType, defUnit } from "../../lib/fieldtypes";
   import { computeStepOutputs, parseNum, parseNumInt } from "../../lib/plan-utils";
 
   let {
@@ -107,12 +108,7 @@
   }
 
   function defSummary(f: PlanFieldDef): string {
-    if (f.typeId === "bool") return "Pass / Fail";
-    if (f.typeId === "select") return `Options: ${((f.params.options as string[] | undefined) ?? []).join(", ") || "—"}`;
-    if (f.typeId === "number") return `Number${f.unit ? ` (${f.unit})` : ""}`;
-    if (f.typeId === "struct") return `Struct: ${String(f.params.structTypeId ?? "?")}`;
-    if (f.typeId === "text") return "Text";
-    return f.typeId;
+    return getFieldType(f.typeId)?.describe(f.params) ?? f.typeId;
   }
 
   const valueTypes = $derived(getValueTypes());
@@ -206,7 +202,7 @@
                     <div class="d-flex align-items-center justify-content-between">
                       <div class="d-flex align-items-center">
                         <span class="binding-name">{f.name}</span>
-                        {#if f.unit}<small class="text-muted ms-1">({f.unit})</small>{/if}
+                        {#if defUnit(f)}<small class="text-muted ms-1">({defUnit(f)})</small>{/if}
                         {#if vt}<span class="badge bg-info ms-1">{vt.displayName}</span>{/if}
                         {#if isDerived}<span class="badge bg-secondary ms-1">Computed</span>{/if}
                       </div>
@@ -255,7 +251,7 @@
                                 {/each}
                               </select>
                               {#if vt}
-                                <small class="text-muted text-nowrap">{createBindingValue(binding, f).display()}</small>
+                                <small class="text-muted text-nowrap">{createBindingValue(binding, f).describe()}</small>
                               {/if}
                             {/if}
                           </div>
@@ -314,7 +310,7 @@
                 <div class="add-binding-area">
                   {#each definitions[cat] as f (f.id)}
                     {#if !node[cat].find(b => b.definition_id === f.id)}
-                      <button class="add-binding-btn" onclick={() => addBinding(cat, f.id)}>+ {f.name}{#if f.unit}<small class="text-muted"> ({f.unit})</small>{/if}</button>
+                      <button class="add-binding-btn" onclick={() => addBinding(cat, f.id)}>+ {f.name}{#if defUnit(f)}<small class="text-muted"> ({defUnit(f)})</small>{/if}</button>
                     {/if}
                   {/each}
                 </div>
