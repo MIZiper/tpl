@@ -1,7 +1,8 @@
-// Value classes: the value-bearing object on a binding. Values expose named
-// scalar channels (values()) and know how to render themselves (display()).
-// Time-varying values read the reactive clock, so derived outputs update live.
-import { clock } from "./clock.svelte";
+// Value classes: the value-bearing object on a binding. A value exposes its
+// characteristic set (values()): named scalar features (e.g. a ramp's
+// start/end/duration). Transforms map these feature values element-wise.
+// Non-transformable features (duration, frequency, struct fields) are
+// passed through unchanged.
 import { getStructType, type StructType } from "./structs";
 import type { PlanFieldDef, FieldBinding } from "../types/plan";
 
@@ -9,6 +10,7 @@ export interface NamedValue {
   name: string;
   value: number | string | null;
   unit?: string;
+  transformable?: boolean;
 }
 
 export interface ValueParamSpec {
@@ -43,13 +45,10 @@ export class Value {
   }
 
   display(): string {
-    return this.values()
-      .map((v) => (v.value == null ? "—" : v.unit ? `${v.value} ${v.unit}` : `${v.value}`))
-      .join(", ");
-  }
-
-  describe(): string {
-    return this.name;
+    const vs = this.values().filter((v) => v.value != null && v.value !== "");
+    if (vs.length === 0) return "—";
+    if (vs.length === 1) return vs[0].unit ? `${vs[0].value} ${vs[0].unit}` : `${vs[0].value}`;
+    return vs.map((v) => `${v.name}=${v.value}${v.unit ? ` ${v.unit}` : ""}`).join(", ");
   }
 
   scalar(subKey = "value"): number | string | null {
@@ -73,36 +72,28 @@ export class PlainValue extends Value {
   values(): NamedValue[] {
     return [{ name: "value", value: this.scalarValue }];
   }
-
-  describe(): string {
-    return this.scalarValue == null ? "Plain" : `Plain (${this.scalarValue})`;
-  }
 }
 
-// Ramp — linear ramp from start to end over duration.
+// Ramp — a range of characteristic values (start → end) with a duration that is
+// descriptive only (not transformed).
 export class RampValue extends Value {
   static readonly typeId: string = "ramp";
   static readonly displayName: string = "Ramp";
   static readonly paramsSchema: ValueParamSpec[] = [
     { key: "start_value", label: "Start Value", type: "number", default: 0 },
     { key: "end_value", label: "End Value", type: "number", default: 100 },
-    { key: "duration_seconds", label: "Duration (s)", type: "number", default: 10 },
+    { key: "duration_seconds", label: "Duration (s)", type: "number", default: null },
   ];
 
   values(): NamedValue[] {
-    const start = Number(this.params.start_value ?? 0);
-    const end = Number(this.params.end_value ?? 0);
-    const dur = Number(this.params.duration_seconds ?? 0);
-    const t = clock.elapsedSeconds;
-    const ratio = dur > 0 ? Math.min(1, Math.max(0, t / dur)) : 1;
-    return [{ name: "value", value: start + (end - start) * ratio }];
-  }
-
-  describe(): string {
-    const s = this.params.start_value;
-    const e = this.params.end_value;
-    const d = this.params.duration_seconds;
-    return `${s} → ${e}${d != null && d !== "" ? ` over ${d}s` : ""}`;
+    const start = this.params.start_value;
+    const end = this.params.end_value;
+    const dur = this.params.duration_seconds;
+    return [
+      { name: "start_value", value: start == null || start === "" ? null : Number(start) },
+      { name: "end_value", value: end == null || end === "" ? null : Number(end) },
+      { name: "duration_seconds", value: dur == null || dur === "" ? null : Number(dur), transformable: false },
+    ];
   }
 }
 
@@ -126,17 +117,6 @@ export class DeviationValue extends Value {
       { name: "tolerance_minus", value: tm == null || tm === "" ? null : Number(tm) },
     ];
   }
-
-  describe(): string {
-    const value = this.params.value ?? 0;
-    const tp = this.params.tolerance_plus;
-    const tm = this.params.tolerance_minus;
-    const parts = [String(value)];
-    if (tp != null && tp !== "" && tm != null && tm !== "") parts.push(`+${tp}/-${tm}`);
-    else if (tp != null && tp !== "") parts.push(`+${tp}`);
-    else if (tm != null && tm !== "") parts.push(`-${tm}`);
-    return parts.join(" ");
-  }
 }
 
 // Percentage — value expressed as a percentage of a reference.
@@ -156,17 +136,10 @@ export class PercentageValue extends Value {
       { name: "reference", value: reference == null || reference === "" ? null : Number(reference) },
     ];
   }
-
-  describe(): string {
-    const value = this.params.value ?? 0;
-    const reference = this.params.reference;
-    let s = `${value}%`;
-    if (reference != null && reference !== "") s += ` of ${reference}`;
-    return s;
-  }
 }
 
-// Sinusoidal — offset + amplitude * sin(2π * frequency * t).
+// Sinusoidal — static characteristic set (amplitude/offset transformable,
+// frequency descriptive). No time evaluation.
 export class SinusoidalValue extends Value {
   static readonly typeId: string = "sinusoidal";
   static readonly displayName: string = "Sinusoidal";
@@ -177,22 +150,14 @@ export class SinusoidalValue extends Value {
   ];
 
   values(): NamedValue[] {
-    const amp = Number(this.params.amplitude ?? 0);
-    const freq = Number(this.params.frequency ?? 0);
-    const offset = Number(this.params.offset ?? 0);
-    const t = clock.elapsedSeconds;
-    return [{ name: "value", value: offset + amp * Math.sin(2 * Math.PI * freq * t) }];
-  }
-
-  describe(): string {
     const amp = this.params.amplitude ?? 0;
     const freq = this.params.frequency ?? 0;
     const offset = this.params.offset ?? 0;
-    const parts: string[] = [];
-    if (Number(offset) !== 0) parts.push(String(offset));
-    parts.push(`±${amp}`);
-    if (Number(freq) > 0) parts.push(`${freq}Hz`);
-    return parts.join(" ");
+    return [
+      { name: "amplitude", value: Number(amp) },
+      { name: "frequency", value: Number(freq), transformable: false },
+      { name: "offset", value: Number(offset) },
+    ];
   }
 }
 
@@ -224,39 +189,12 @@ export class StructValue extends Value {
       name: f.key,
       value: (this.structParams[f.key] ?? "") as number | string,
       unit: f.unit,
+      transformable: false,
     }));
   }
-
-  display(): string {
-    const s = this.values().filter((v) => v.value !== "" && v.value != null);
-    if (!s.length) return this.structTypeId;
-    return `${this.structTypeId} (${s.map((v) => `${v.name}:${v.value}`).join(", ")})`;
-  }
 }
 
-// SubValue — exposes a single named channel of another Value.
-export class SubValue extends Value {
-  static readonly typeId: string = "sub";
-
-  constructor(
-    public src: Value,
-    public subKey: string,
-    params: Record<string, unknown> = {}
-  ) {
-    super(params);
-  }
-
-  values(): NamedValue[] {
-    return this.src.values().filter((v) => v.name === this.subKey);
-  }
-
-  display(): string {
-    const v = this.values()[0];
-    return v && v.value != null ? (v.unit ? `${v.value} ${v.unit}` : `${v.value}`) : "—";
-  }
-}
-
-// DerivedValue — lazily recomputes from inputs; makes transform outputs composable.
+// DerivedValue — maps characteristic values from its inputs; composable.
 export class DerivedValue extends Value {
   static readonly typeId: string = "derived";
   static readonly displayName: string = "Derived";
@@ -271,12 +209,6 @@ export class DerivedValue extends Value {
 
   values(): NamedValue[] {
     return this.compute();
-  }
-
-  display(): string {
-    const v = this.values()[0];
-    if (!v) return "—";
-    return v.value == null ? "—" : v.unit ? `${v.value} ${v.unit}` : `${v.value}`;
   }
 }
 

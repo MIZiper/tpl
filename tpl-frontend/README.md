@@ -32,11 +32,10 @@ tpl-frontend/src/
 ├── lib/
 │   ├── api/                  # documentsApi / planApi / executionApi
 │   ├── plan-utils.ts         # tree utils, transform graph evaluation
-│   ├── clock.svelte.ts       # reactive elapsed-seconds clock (Svelte $state)
 │   ├── fieldtypes.ts         # definition kinds (number/text/select/bool/struct)
-│   ├── values.ts             # binding value classes (values/display/describe/scalar)
-│   ├── structs.ts            # struct classes (e.g. GearboxStruct)
-│   └── transforms.ts         # typed transform classes (formula/linear/lookup/gearbox.output_speed)
+│   ├── values.ts             # binding value classes (characteristic set, display, transformable flags)
+│   ├── structs.ts            # struct classes (GearboxStruct / ProductStruct)
+│   └── transforms.ts         # typed transform classes (per-channel mapping)
 └── types/
     ├── document.ts
     ├── plan.ts

@@ -51,16 +51,29 @@ export class GearboxStruct extends StructType {
   static readonly typeId: string = "gearbox";
   static readonly displayName: string = "Gearbox";
   static readonly fieldsSchema: StructField[] = [
-    { key: "stages", label: "Number of stages", dataType: "number" },
-    { key: "ratio_ls", label: "Low speed stage ratio", dataType: "number" },
-    { key: "ratio_is", label: "Intermediate speed stage ratio", dataType: "number" },
-    { key: "ratio_hs", label: "High speed stage ratio", dataType: "number" },
-    { key: "model", label: "Model / type name", dataType: "text" },
+    { key: "ratio", label: "Total ratio", dataType: "number" },
   ];
 
-  ratioFor(stage: string): number {
-    return Number(this.params[`ratio_${stage}`] ?? 1);
+  ratio(): number {
+    return Number(this.params.ratio ?? 1);
+  }
+}
+
+export class ProductStruct extends StructType {
+  static readonly typeId: string = "product";
+  static readonly displayName: string = "Product";
+  static readonly fieldsSchema: StructField[] = [
+    { key: "ratio", label: "Ratio", dataType: "number" },
+    { key: "model", label: "Model", dataType: "text" },
+    { key: "nominal_output_speed", label: "Nominal output speed", dataType: "number", unit: "rpm" },
+    { key: "nominal_input_torque", label: "Nominal input torque", dataType: "number", unit: "kNm" },
+    { key: "efficiency", label: "Efficiency", dataType: "number" },
+  ];
+
+  ratio(): number {
+    return Number(this.params.ratio ?? 1);
   }
 }
 
 registerStructType(GearboxStruct);
+registerStructType(ProductStruct);

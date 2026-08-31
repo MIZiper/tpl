@@ -50,7 +50,6 @@ export interface PlanTemplate {
 export interface TransformInputBinding {
   role: string;
   definitionId: string;
-  subKey?: string;
 }
 
 export interface TransformDef {

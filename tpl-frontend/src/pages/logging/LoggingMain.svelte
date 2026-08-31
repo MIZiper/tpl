@@ -4,7 +4,6 @@
   import { execState, load, init, saveDoc, startRun, completeRun, updateRun, computeEntryStatus } from "../../stores/execution";
   import { executionApi, planApi } from "../../lib/api";
   import { findNode, generateId, computeStepOutputs, parseNum } from "../../lib/plan-utils";
-  import { setElapsed } from "../../lib/clock.svelte";
   import { createValue, createBindingValue, PlainValue, getValueType, type Value } from "../../lib/values";
   import type { ExecutionEntry, ExecutionRun } from "../../types/execution";
   import type { PlanNode, PlanFieldDef, FieldBinding } from "../../types/plan";
@@ -45,8 +44,6 @@
     const interval = setInterval(update, 1000);
     return () => clearInterval(interval);
   });
-
-  $effect(() => setElapsed(tick));
 
   function activeRunForAny(): ExecutionRun | undefined {
     if (!doc) return undefined;
@@ -524,7 +521,7 @@
                           {#if isDerived}<span class="badge bg-secondary ms-1">Computed</span>{/if}
                         </div>
                         {#if d?.unit}<small class="text-muted">{d.unit}</small>{/if}
-                        {#if vt && value}<small class="text-muted d-block">{value.describe()}</small>{/if}
+                        {#if vt && value}<small class="text-muted d-block">{value.display()}</small>{/if}
 
                         {#if isDerived}
                           <div class="field-block-value">{out?.display() ?? "—"}</div>

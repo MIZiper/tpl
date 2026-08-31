@@ -255,7 +255,7 @@
                                 {/each}
                               </select>
                               {#if vt}
-                                <small class="text-muted text-nowrap">{createBindingValue(binding, f).describe()}</small>
+                                <small class="text-muted text-nowrap">{createBindingValue(binding, f).display()}</small>
                               {/if}
                             {/if}
                           </div>

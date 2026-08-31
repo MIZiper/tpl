@@ -6,7 +6,7 @@ import type {
   FieldBinding,
   TransformDef,
 } from "../types/plan";
-import { PlainValue, SubValue, type Value } from "./values";
+import { PlainValue, type Value } from "./values";
 import { getTransform } from "./transforms";
 
 let _counter = 0;
@@ -321,16 +321,7 @@ export function computeStepOutputs(
     const inputs: Record<string, Value> = {};
     for (const inb of t.inputs) {
       const src = outByDefId.get(inb.definitionId) ?? valuesByDefId[inb.definitionId];
-      if (!src) {
-        inputs[inb.role] = new PlainValue(null);
-        continue;
-      }
-      const port = cls.inputs().find((p) => p.role === inb.role);
-      if (port?.kind === "struct" && !inb.subKey) {
-        inputs[inb.role] = src;
-      } else {
-        inputs[inb.role] = new SubValue(src, inb.subKey ?? "value");
-      }
+      inputs[inb.role] = src ?? new PlainValue(null);
     }
     const out = cls.apply(inputs, { ...t.params, derived_unit: t.derived.unit });
     byTransform[t.id] = out;

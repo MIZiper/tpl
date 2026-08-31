@@ -74,7 +74,7 @@ def main():
     }
     plan2["transforms"] = [{
         "id": "tf-1", "name": "Half", "typeId": "linear",
-        "inputs": [{"role": "value", "definitionId": def_id, "subKey": "start_value"}],
+        "inputs": [{"role": "value", "definitionId": def_id}],
         "derivedDefId": "def-derived-1", "derived": {"name": "Half", "unit": "rpm"},
         "params": {"factor": 0.5, "offset": 0},
     }]
@@ -84,7 +84,7 @@ def main():
     check("tpl: value type round-trip",
           b["valueTypeId"] == "ramp" and b["params"]["end_value"] == 100)
     check("tpl: typed transform round-trip",
-          plan3["transforms"][0]["inputs"][0]["subKey"] == "start_value"
+          plan3["transforms"][0]["inputs"][0]["definitionId"] == def_id
           and plan3["transforms"][0]["derived"]["unit"] == "rpm")
 
     edoc, s = call("POST", f"{TPL}/documents/{did}/execution-document/initialize")

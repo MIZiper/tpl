@@ -499,7 +499,7 @@
                 {@const variadic = ports.some(p => p.variadic)}
                 {@const bindDef = inputDefs.find(d => d.id === t.derivedDefId)}
                 {@const isEditing = editingTransformId === t.id}
-                {@const sourceNames = t.inputs.map(inp => { const d = inputDefs.find(x => x.id === inp.definitionId); return d ? `${d.name}${inp.subKey && inp.subKey !== "value" ? `.${inp.subKey}` : ""}` : inp.role; }).join(", ") || "?"}
+                {@const sourceNames = t.inputs.map(inp => { const d = inputDefs.find(x => x.id === inp.definitionId); return d ? d.name : inp.role; }).join(", ") || "?"}
                 {@const outputName = t.derived.name || bindDef?.name || "?"}
                 <div class="def-item" onclick={() => editingTransformId = isEditing ? null : t.id} style="cursor:pointer">
                   <div class="flex-grow-1">
