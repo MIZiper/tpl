@@ -65,9 +65,9 @@ export class ProductStruct extends StructType {
   static readonly fieldsSchema: StructField[] = [
     { key: "ratio", label: "Ratio", dataType: "number" },
     { key: "model", label: "Model", dataType: "text" },
-    { key: "nominal_output_speed", label: "Nominal output speed", dataType: "number", unit: "rpm" },
-    { key: "nominal_input_torque", label: "Nominal input torque", dataType: "number", unit: "kNm" },
-    { key: "efficiency", label: "Efficiency", dataType: "number" },
+    { key: "nominal_output_speed", label: "Nominal output speed [rpm]", dataType: "number", unit: "rpm" },
+    { key: "nominal_input_torque", label: "Nominal input torque [kNm]", dataType: "number", unit: "kNm" },
+    { key: "efficiency", label: "Efficiency [%]", dataType: "number", unit: "%"},
   ];
 
   ratio(): number {

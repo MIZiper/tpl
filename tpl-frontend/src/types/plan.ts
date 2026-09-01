@@ -54,7 +54,7 @@ export interface TransformInputBinding {
 export interface TransformDef {
   id: string;
   name: string;
-  typeId: string;                 // transform class id, e.g. "linear" | "gearbox.output_speed"
+  typeId: string;                 // transform class id, e.g. "linear" | "gearbox.trans"
   inputs: TransformInputBinding[];
   derivedDefId: string;           // definition id holding the derived output
   derived: { name: string; unit: string | null };

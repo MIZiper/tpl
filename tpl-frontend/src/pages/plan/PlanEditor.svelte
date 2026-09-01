@@ -604,7 +604,7 @@
                 <div class="text-muted" style="font-size:0.8rem">
                   <p>Transforms compute derived values from source inputs during logging.</p>
                   <ol class="small ps-3">
-                    <li>Pick a transform method (e.g. Linear, Gearbox output speed)</li>
+                    <li>Pick a transform method (e.g. Linear, Gearbox conversion)</li>
                     <li>Bind its typed inputs to definitions</li>
                     <li>Create a new derived output field or pick an existing one</li>
                   </ol>

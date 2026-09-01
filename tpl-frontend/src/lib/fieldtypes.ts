@@ -25,7 +25,7 @@ export class NumberType extends FieldType {
 
   static describe(params: Record<string, unknown>): string {
     const unit = params.unit;
-    return unit ? `Number (${unit})` : "Number";
+    return unit ? `Number [${unit}]` : "Number";
   }
 }
 
@@ -56,7 +56,7 @@ export class BoolType extends FieldType {
 
   static describe(params: Record<string, unknown>): string {
     const criteria = params.criteria;
-    return criteria ? `Pass/Fail — ${criteria}` : "Pass/Fail";
+    return criteria ? `Pass/Fail: ${criteria}` : "Yes/No";
   }
 }
 
@@ -67,9 +67,7 @@ export class StructFieldType extends FieldType {
   static describe(params: Record<string, unknown>): string {
     const st = getStructType(String(params.structTypeId ?? ""));
     if (!st) return "Struct";
-    const filled = st.fieldsSchema.filter((f) => params[f.key] != null && params[f.key] !== "");
-    if (!filled.length) return st.displayName;
-    return `${st.displayName}(${filled.map((f) => `${f.key}:${params[f.key]}`).join(", ")})`;
+    return st.displayName;
   }
 }
 

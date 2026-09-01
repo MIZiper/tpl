@@ -128,28 +128,32 @@ export class LookupTransform extends Transform {
   }
 }
 
-// GearboxOutputSpeed — output = input_speed features mapped by gearbox ratio.
-export class GearboxOutputSpeed extends Transform {
-  static readonly typeId: string = "gearbox.output_speed";
-  static readonly displayName: string = "Gearbox output speed";
+// GearboxTrans — output = input features mapped by gearbox ratio (user defines
+// the output meaning via the derived name/unit; direction via mode).
+export class GearboxTrans extends Transform {
+  static readonly typeId: string = "gearbox.trans";
+  static readonly displayName: string = "Gearbox conversion";
   static readonly paramsSchema: ParamSpec[] = [
     { key: "mode", label: "Mode", type: "select", options: ["divide", "multiply"], default: "divide" },
   ];
 
   static inputs(): PortSpec[] {
     return [
-      { role: "speed", label: "Input speed", kind: "fielddef", fieldType: "number" },
+      { role: "value", label: "Input value", kind: "fielddef", fieldType: "number" },
       { role: "gearbox", label: "Gearbox", kind: "struct", structType: "gearbox" },
     ];
   }
 
   static apply(inputs: Record<string, Value>, params: Record<string, unknown>): Value {
-    const speed = inputs["speed"];
-    const gbx = (inputs["gearbox"] as StructValue).struct<GearboxStruct>();
-    const ratio = gbx.ratio();
+    const value = inputs["value"];
+    const gbx = inputs["gearbox"];
+    if (!(gbx instanceof StructValue)) {
+      return new DerivedValue(null, () => []);
+    }
+    const ratio = gbx.struct<GearboxStruct>().ratio();
     const factor = String(params.mode ?? "divide") === "multiply" ? ratio : 1 / ratio;
     const unit = params.derived_unit ? String(params.derived_unit) : null;
-    return new DerivedValue(unit, () => mapChannels(speed, (v) => v * factor));
+    return new DerivedValue(unit, () => mapChannels(value, (v) => v * factor));
   }
 }
 
@@ -174,4 +178,4 @@ export function getTransform(id: string): typeof Transform | undefined {
 registerTransform(FormulaTransform);
 registerTransform(LinearTransform);
 registerTransform(LookupTransform);
-registerTransform(GearboxOutputSpeed);
+registerTransform(GearboxTrans);
