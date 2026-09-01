@@ -1,9 +1,11 @@
 // Transform classes: typed computation. apply() receives bound Value instances
-// (keyed by role) and returns a new Value (typically a DerivedValue) whose
-// characteristic values are a per-channel mapping of the inputs. Non-
-// transformable channels (duration, frequency, struct fields) pass through.
-import { Value, DerivedValue, PlainValue, StructValue, type NamedValue } from "./values";
-import { GearboxStruct } from "./structs";
+// (keyed by role) and returns a new Value. Single-input channel-mapping
+// transforms preserve the input's value type via Value.mapChannels (a ramp in
+// yields a ramp out); non-transformable channels pass through. Transforms that
+// change shape (formula, lookup) or branch on input type (ProductTrans) return
+// a concrete value or a generic DerivedValue as appropriate.
+import { Value, DerivedValue, PlainValue, StructValue, PercentageValue, type NamedValue } from "./values";
+import { GearboxStruct, ProductStruct } from "./structs";
 import type { ParamSpec } from "./params";
 
 export interface PortSpec {
@@ -27,14 +29,6 @@ export class Transform {
   static apply(inputs: Record<string, Value>, params: Record<string, unknown>): Value {
     return new PlainValue(null);
   }
-}
-
-// Map each transformable channel of a value through fn; copy the rest.
-function mapChannels(src: Value, fn: (v: number) => number): NamedValue[] {
-  return src.values().map((c) => {
-    if (c.transformable === false) return c;
-    return { name: c.name, value: c.value == null ? null : fn(Number(c.value)) };
-  });
 }
 
 // Formula — variadic numeric ports; role names become expression variables.
@@ -97,8 +91,7 @@ export class LinearTransform extends Transform {
   static apply(inputs: Record<string, Value>, params: Record<string, unknown>): Value {
     const factor = Number(params.factor ?? 1);
     const offset = Number(params.offset ?? 0);
-    const unit = params.derived_unit ? String(params.derived_unit) : null;
-    return new DerivedValue(unit, () => mapChannels(inputs["value"], (v) => v * factor + offset));
+    return inputs["value"].mapChannels((v) => v * factor + offset);
   }
 }
 
@@ -152,8 +145,43 @@ export class GearboxTrans extends Transform {
     }
     const ratio = gbx.struct<GearboxStruct>().ratio();
     const factor = String(params.mode ?? "divide") === "multiply" ? ratio : 1 / ratio;
-    const unit = params.derived_unit ? String(params.derived_unit) : null;
-    return new DerivedValue(unit, () => mapChannels(value, (v) => v * factor));
+    return value.mapChannels((v) => v * factor);
+  }
+}
+
+// ProductTrans — convert through a ProductStruct, branching on the input type:
+//   * Percentage input → resolve against the product's nominal_output_speed
+//     and return a PlainValue (absolute value = percentage% × nominal).
+//   * Any other numeric input → map through the product ratio (type-preserving).
+export class ProductTrans extends Transform {
+  static readonly typeId: string = "product.trans";
+  static readonly displayName: string = "Product conversion";
+  static readonly paramsSchema: ParamSpec[] = [
+    { key: "mode", label: "Mode", type: "select", options: ["divide", "multiply"], default: "divide" },
+  ];
+
+  static inputs(): PortSpec[] {
+    return [
+      { role: "value", label: "Input value", kind: "fielddef", fieldType: "number" },
+      { role: "product", label: "Product", kind: "struct", structType: "product" },
+    ];
+  }
+
+  static apply(inputs: Record<string, Value>, params: Record<string, unknown>): Value {
+    const value = inputs["value"];
+    const product = inputs["product"];
+    if (!(product instanceof StructValue)) {
+      return new DerivedValue(null, () => []);
+    }
+    const pstruct = product.struct<ProductStruct>();
+    const factor = String(params.mode ?? "divide") === "multiply" ? pstruct.ratio() : 1 / pstruct.ratio();
+
+    if (value instanceof PercentageValue) {
+      const nominal = Number(pstruct.params.nominal_output_speed ?? 0);
+      const pct = Number(value.params.value ?? 0);
+      return new PlainValue(Number(((pct * nominal) / 100).toFixed(12)));
+    }
+    return value.mapChannels((v) => v * factor);
   }
 }
 
@@ -179,3 +207,4 @@ registerTransform(FormulaTransform);
 registerTransform(LinearTransform);
 registerTransform(LookupTransform);
 registerTransform(GearboxTrans);
+registerTransform(ProductTrans);

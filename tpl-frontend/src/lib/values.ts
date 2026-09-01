@@ -63,6 +63,18 @@ export class Value {
     const v = this.values().find((x) => x.name === subKey);
     return v ? v.value : null;
   }
+
+  // Map each transformable characteristic through fn. Concrete value types
+  // override this to return a new instance of the SAME type; the base fallback
+  // returns a generic DerivedValue (used for derived/chained or unknown types).
+  mapChannels(fn: (v: number) => number): Value {
+    return new DerivedValue(null, () =>
+      this.values().map((c) => {
+        if (c.transformable === false) return c;
+        return { name: c.name, value: c.value == null ? null : fn(Number(c.value)) };
+      })
+    );
+  }
 }
 
 // Plain scalar — no value_type on the binding.
@@ -83,6 +95,10 @@ export class PlainValue extends Value {
 
   display(): string {
     return this.scalarValue == null ? "—" : fmtNum(this.scalarValue);
+  }
+
+  mapChannels(fn: (v: number) => number): Value {
+    return new PlainValue(this.scalarValue == null ? null : fn(Number(this.scalarValue)));
   }
 }
 
@@ -114,6 +130,18 @@ export class RampValue extends Value {
     const d = this.params.duration_seconds;
     const base = `${fmtNum(s)} → ${fmtNum(e)}`;
     return d != null && d !== "" ? `${base} over ${fmtNum(d)}s` : base;
+  }
+
+  mapChannels(fn: (v: number) => number): Value {
+    const map = (k: string) => {
+      const v = this.params[k];
+      return v == null || v === "" ? v : fn(Number(v));
+    };
+    return new RampValue({
+      ...this.params,
+      start_value: map("start_value"),
+      end_value: map("end_value"),
+    });
   }
 }
 
@@ -148,6 +176,19 @@ export class DeviationValue extends Value {
     else if (tm != null && tm !== "") parts.push(`-${fmtNum(tm)}`);
     return parts.join(" ");
   }
+
+  mapChannels(fn: (v: number) => number): Value {
+    const map = (k: string) => {
+      const v = this.params[k];
+      return v == null || v === "" ? v : fn(Number(v));
+    };
+    return new DeviationValue({
+      ...this.params,
+      value: map("value"),
+      tolerance_plus: map("tolerance_plus"),
+      tolerance_minus: map("tolerance_minus"),
+    });
+  }
 }
 
 // Percentage — value expressed as a percentage of a reference.
@@ -174,6 +215,14 @@ export class PercentageValue extends Value {
     let s = `${fmtNum(value)}%`;
     if (reference != null && reference !== "") s += ` of ${fmtNum(reference)}`;
     return s;
+  }
+
+  mapChannels(fn: (v: number) => number): Value {
+    const map = (k: string) => {
+      const v = this.params[k];
+      return v == null || v === "" ? v : fn(Number(v));
+    };
+    return new PercentageValue({ ...this.params, reference: map("reference") });
   }
 }
 
@@ -208,6 +257,18 @@ export class SinusoidalValue extends Value {
     parts.push(`±${fmtNum(amp)}`);
     if (Number(freq) > 0) parts.push(`${fmtNum(freq)}Hz`);
     return parts.join(" ");
+  }
+
+  mapChannels(fn: (v: number) => number): Value {
+    const map = (k: string) => {
+      const v = this.params[k];
+      return v == null || v === "" ? v : fn(Number(v));
+    };
+    return new SinusoidalValue({
+      ...this.params,
+      amplitude: map("amplitude"),
+      offset: map("offset"),
+    });
   }
 }
 
@@ -247,6 +308,10 @@ export class StructValue extends Value {
     const s = this.values().filter((v) => v.value !== "" && v.value != null);
     if (!s.length) return this.structTypeId;
     return `${this.structTypeId} (${s.map((v) => `${v.name}:${fmtNum(v.value)}`).join(", ")})`;
+  }
+
+  mapChannels(_fn: (v: number) => number): Value {
+    return this;
   }
 }
 
