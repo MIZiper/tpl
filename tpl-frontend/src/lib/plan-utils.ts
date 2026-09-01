@@ -6,7 +6,7 @@ import type {
   FieldBinding,
   TransformDef,
 } from "../types/plan";
-import { PlainValue, type Value } from "./values";
+import { createStructValue, type Value } from "./values";
 import { getTransform } from "./transforms";
 
 let _counter = 0;
@@ -295,6 +295,10 @@ export function allDefinitions(defs: PlanDefinitions): PlanFieldDef[] {
   ];
 }
 
+export function findDefinition(defs: PlanDefinitions, id: string): PlanFieldDef | undefined {
+  return allDefinitions(defs).find((d) => d.id === id);
+}
+
 export interface StepOutputs {
   byTransform: Record<string, Value>;
   byDef: Record<string, Value>;
@@ -319,10 +323,17 @@ export function computeStepOutputs(
     const cls = getTransform(t.typeId);
     if (!cls) continue;
     const inputs: Record<string, Value> = {};
+    let resolved = true;
     for (const inb of t.inputs) {
-      const src = outByDefId.get(inb.definitionId) ?? valuesByDefId[inb.definitionId];
-      inputs[inb.role] = src ?? new PlainValue(null);
+      let src = outByDefId.get(inb.definitionId) ?? valuesByDefId[inb.definitionId];
+      if (!src) {
+        const def = findDefinition(definitions, inb.definitionId);
+        if (def?.typeId === "struct") src = createStructValue(def);
+      }
+      if (!src) { resolved = false; break; }
+      inputs[inb.role] = src;
     }
+    if (!resolved) continue;
     const out = cls.apply(inputs, { ...t.params, derived_unit: t.derived.unit });
     byTransform[t.id] = out;
     outByDefId.set(t.derivedDefId, out);

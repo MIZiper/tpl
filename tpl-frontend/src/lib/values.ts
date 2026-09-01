@@ -14,6 +14,15 @@ export interface NamedValue {
   transformable?: boolean;
 }
 
+// Format a value for display: numbers are capped at 3 decimal places (also
+// cleans up floating-point artifacts), strings pass through, null/"" -> "—".
+function fmtNum(v: unknown): string {
+  if (v == null || v === "") return "—";
+  const n = Number(v);
+  if (!Number.isFinite(n)) return String(v);
+  return String(Math.round(n * 1000) / 1000);
+}
+
 export class Value {
   static readonly typeId: string = "value";
   static readonly displayName: string = "Value";
@@ -46,8 +55,8 @@ export class Value {
   display(): string {
     const vs = this.values().filter((v) => v.value != null && v.value !== "");
     if (vs.length === 0) return "—";
-    if (vs.length === 1) return vs[0].unit ? `${vs[0].value} ${vs[0].unit}` : `${vs[0].value}`;
-    return vs.map((v) => `${v.name}=${v.value}${v.unit ? ` ${v.unit}` : ""}`).join(", ");
+    if (vs.length === 1) return vs[0].unit ? `${fmtNum(vs[0].value)} ${vs[0].unit}` : `${fmtNum(vs[0].value)}`;
+    return vs.map((v) => `${v.name}=${fmtNum(v.value)}${v.unit ? ` ${v.unit}` : ""}`).join(", ");
   }
 
   scalar(subKey = "value"): number | string | null {
@@ -73,7 +82,7 @@ export class PlainValue extends Value {
   }
 
   display(): string {
-    return this.scalarValue == null ? "—" : `${this.scalarValue}`;
+    return this.scalarValue == null ? "—" : fmtNum(this.scalarValue);
   }
 }
 
@@ -103,8 +112,8 @@ export class RampValue extends Value {
     const s = this.params.start_value;
     const e = this.params.end_value;
     const d = this.params.duration_seconds;
-    const base = `${s ?? "—"} → ${e ?? "—"}`;
-    return d != null && d !== "" ? `${base} over ${d}s` : base;
+    const base = `${fmtNum(s)} → ${fmtNum(e)}`;
+    return d != null && d !== "" ? `${base} over ${fmtNum(d)}s` : base;
   }
 }
 
@@ -133,10 +142,10 @@ export class DeviationValue extends Value {
     const value = this.params.value ?? 0;
     const tp = this.params.tolerance_plus;
     const tm = this.params.tolerance_minus;
-    const parts = [String(value)];
-    if (tp != null && tp !== "" && tm != null && tm !== "") parts.push(`+${tp}/-${tm}`);
-    else if (tp != null && tp !== "") parts.push(`+${tp}`);
-    else if (tm != null && tm !== "") parts.push(`-${tm}`);
+    const parts = [fmtNum(value)];
+    if (tp != null && tp !== "" && tm != null && tm !== "") parts.push(`+${fmtNum(tp)}/-${fmtNum(tm)}`);
+    else if (tp != null && tp !== "") parts.push(`+${fmtNum(tp)}`);
+    else if (tm != null && tm !== "") parts.push(`-${fmtNum(tm)}`);
     return parts.join(" ");
   }
 }
@@ -154,7 +163,7 @@ export class PercentageValue extends Value {
     const value = this.params.value ?? 0;
     const reference = this.params.reference;
     return [
-      { name: "value", value: Number(value) },
+      { name: "value", value: Number(value), transformable: false },
       { name: "reference", value: reference == null || reference === "" ? null : Number(reference) },
     ];
   }
@@ -162,8 +171,8 @@ export class PercentageValue extends Value {
   display(): string {
     const value = this.params.value ?? 0;
     const reference = this.params.reference;
-    let s = `${value}%`;
-    if (reference != null && reference !== "") s += ` of ${reference}`;
+    let s = `${fmtNum(value)}%`;
+    if (reference != null && reference !== "") s += ` of ${fmtNum(reference)}`;
     return s;
   }
 }
@@ -195,9 +204,9 @@ export class SinusoidalValue extends Value {
     const freq = this.params.frequency ?? 0;
     const offset = this.params.offset ?? 0;
     const parts: string[] = [];
-    if (Number(offset) !== 0) parts.push(String(offset));
-    parts.push(`±${amp}`);
-    if (Number(freq) > 0) parts.push(`${freq}Hz`);
+    if (Number(offset) !== 0) parts.push(fmtNum(offset));
+    parts.push(`±${fmtNum(amp)}`);
+    if (Number(freq) > 0) parts.push(`${fmtNum(freq)}Hz`);
     return parts.join(" ");
   }
 }
@@ -237,7 +246,7 @@ export class StructValue extends Value {
   display(): string {
     const s = this.values().filter((v) => v.value !== "" && v.value != null);
     if (!s.length) return this.structTypeId;
-    return `${this.structTypeId} (${s.map((v) => `${v.name}:${v.value}`).join(", ")})`;
+    return `${this.structTypeId} (${s.map((v) => `${v.name}:${fmtNum(v.value)}`).join(", ")})`;
   }
 }
 
@@ -261,8 +270,8 @@ export class DerivedValue extends Value {
   display(): string {
     const vs = this.values().filter((v) => v.value != null && v.value !== "");
     if (vs.length === 0) return "—";
-    if (vs.length === 1) return vs[0].unit ? `${vs[0].value} ${vs[0].unit}` : `${vs[0].value}`;
-    return vs.map((v) => `${v.value}${v.unit ? ` ${v.unit}` : ""}`).join(", ");
+    if (vs.length === 1) return vs[0].unit ? `${fmtNum(vs[0].value)} ${vs[0].unit}` : `${fmtNum(vs[0].value)}`;
+    return vs.map((v) => `${fmtNum(v.value)}${v.unit ? ` ${v.unit}` : ""}`).join(", ");
   }
 }
 
@@ -315,17 +324,21 @@ export function createValue(
   }
 }
 
+// Build a StructValue directly from a struct definition (data lives on the
+// definition, not on a per-step binding).
+export function createStructValue(def: PlanFieldDef): StructValue {
+  const structTypeId = String(def.params.structTypeId ?? "");
+  const structParams: Record<string, unknown> = { ...def.params };
+  delete structParams.structTypeId;
+  return new StructValue(structTypeId, structParams);
+}
+
 // Build the Value instance for a binding, considering its definition.
 export function createBindingValue(
   binding: FieldBinding,
   def: PlanFieldDef | undefined
 ): Value {
-  if (def?.typeId === "struct") {
-    const structTypeId = String(def.params.structTypeId ?? "");
-    const structParams: Record<string, unknown> = { ...def.params };
-    delete structParams.structTypeId;
-    return new StructValue(structTypeId, structParams);
-  }
+  if (def?.typeId === "struct") return createStructValue(def);
   return createValue(binding.valueTypeId, binding.params, binding.value);
 }
 

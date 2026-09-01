@@ -134,6 +134,7 @@
     if (!plan || !displayStep) return map;
     for (const b of displayStep.input_conditions) {
       const def = defField(b.definition_id);
+      if (def?.derived === true) continue;
       if (def?.typeId === "struct") {
         map[b.definition_id] = createBindingValue(b, def);
       } else if (b.valueTypeId) {

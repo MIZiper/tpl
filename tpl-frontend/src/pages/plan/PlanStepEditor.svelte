@@ -37,6 +37,7 @@
     const map: Record<string, Value> = {};
     if (!definitions) return map;
     for (const b of [...node.input_conditions, ...node.collection_items]) {
+      if (isDerivedDef(b.definition_id)) continue;
       map[b.definition_id] = createBindingValue(b, defField(b.definition_id) ?? undefined);
     }
     return map;
@@ -194,30 +195,42 @@
               <div class="binding-category">{categoryLabel(cat)}</div>
               {#each definitions[cat] as f (f.id)}
                 {@const binding = node[cat].find(b => b.definition_id === f.id)}
-                {#if binding}
+                {@const isDerived = isDerivedDef(f.id)}
+                {@const producers = producersOf(f.id)}
+                {#if isDerived}
+                  <div class="binding-item computed">
+                    <div class="d-flex align-items-center">
+                      <span class="binding-name">{f.name}</span>
+                      {#if defUnit(f)}<small class="text-muted ms-1">({defUnit(f)})</small>{/if}
+                      <span class="badge bg-secondary ms-1">Computed</span>
+                    </div>
+                    {#if cat === "input_conditions"}
+                      <div class="binding-value mt-1">
+                        <div class="text-muted small mb-1">
+                          Computed via {producers.map(t => t.name).join(", ") || "?"}
+                          {#if liveOutputs.byDef[f.id]}
+                            <span class="ms-1 fw-bold">= {liveOutputs.byDef[f.id].display()}</span>
+                          {:else}
+                            <span class="ms-1 fw-bold">—</span>
+                          {/if}
+                        </div>
+                      </div>
+                    {/if}
+                  </div>
+                {:else if binding}
                   {@const vt = binding.valueTypeId ? getValueType(binding.valueTypeId) : undefined}
-                  {@const isDerived = isDerivedDef(f.id)}
-                  {@const producers = producersOf(f.id)}
                   <div class="binding-item active">
                     <div class="d-flex align-items-center justify-content-between">
                       <div class="d-flex align-items-center">
                         <span class="binding-name">{f.name}</span>
                         {#if defUnit(f)}<small class="text-muted ms-1">({defUnit(f)})</small>{/if}
                         {#if vt}<span class="badge bg-info ms-1">{vt.displayName}</span>{/if}
-                        {#if isDerived}<span class="badge bg-secondary ms-1">Computed</span>{/if}
                       </div>
                       <button class="btn btn-sm btn-close-sm" onclick={() => removeBinding(cat, f.id)} title="Remove binding">&times;</button>
                     </div>
                     {#if cat === "input_conditions"}
                       <div class="binding-value mt-1">
-                        {#if isDerived}
-                          <div class="text-muted small mb-1">
-                            Computed via {producers.map(t => t.name).join(", ")}
-                            {#if liveOutputs.byDef[f.id]}
-                              <span class="ms-1 fw-bold">= {liveOutputs.byDef[f.id].display()}</span>
-                            {/if}
-                          </div>
-                        {:else if f.typeId === "bool"}
+                        {#if f.typeId === "bool"}
                           <select class="form-select form-select-sm" value={String(binding.value ?? "")} onchange={(e) => { const v = (e.target as HTMLSelectElement).value; updateBinding(cat, f.id, { value: v === "true" ? true : v === "false" ? false : null }); }}>
                             <option value="">--</option>
                             <option value="true">Pass / True</option>
@@ -282,7 +295,7 @@
                         {/if}
 
                         <!-- Transforms that produce this field (readouts) -->
-                        {#if producers.length > 0 && !isDerived}
+                        {#if producers.length > 0}
                           <div class="derived-outputs mt-1">
                             {#each producers as xf (xf.id)}
                               {@const out = liveOutputs.byTransform[xf.id]}
@@ -306,10 +319,10 @@
                   </div>
                 {/if}
               {/each}
-              {#if definitions[cat].some(f => !node[cat].find(b => b.definition_id === f.id))}
+              {#if definitions[cat].some(f => !isDerivedDef(f.id) && f.typeId !== "struct" && !node[cat].find(b => b.definition_id === f.id))}
                 <div class="add-binding-area">
                   {#each definitions[cat] as f (f.id)}
-                    {#if !node[cat].find(b => b.definition_id === f.id)}
+                    {#if !isDerivedDef(f.id) && f.typeId !== "struct" && !node[cat].find(b => b.definition_id === f.id)}
                       <button class="add-binding-btn" onclick={() => addBinding(cat, f.id)}>+ {f.name}{#if defUnit(f)}<small class="text-muted"> ({defUnit(f)})</small>{/if}</button>
                     {/if}
                   {/each}
@@ -401,6 +414,10 @@
   .binding-item.orphaned {
     border-color: #ffc107;
     background: #fff9e6;
+  }
+  .binding-item.computed {
+    border-color: #6f42c1;
+    background: #f8f6ff;
   }
   .orphaned-label {
     font-size: 0.8rem;
