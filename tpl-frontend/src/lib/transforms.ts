@@ -149,18 +149,19 @@ export class GearboxTrans extends Transform {
   }
 }
 
-// ProductTrans — convert through a ProductStruct, branching on the mode type:
-//   * In unify/ast mode, input always follow the struct definition: output speed and input torque.
-//     unify mode: simply convert to absolute values of input
-//     ast mode: speed to input side, torque to output side (both ÷ ratio)
-//       Speed has no loss in transform, while torque consider that.
-//       If input is percentage, then convert to abs values first.
-//   * Any other mode input → map through the product ratio (type-preserving).
+// ProductTrans — convert through a ProductStruct with explicit controls:
+//   * reference: which product nominal a percentage resolves against
+//     (none → percentage passes through as percentage; speed → nominal_output_speed;
+//      torque → nominal_input_torque).
+//   * ratio_mode / efficiency: none | multiply | divide, combined as a factor.
+//   Absolute (non-percentage) inputs are mapped type-preservingly.
 export class ProductTrans extends Transform {
   static readonly typeId: string = "product.trans";
   static readonly displayName: string = "Product conversion";
   static readonly paramsSchema: ParamSpec[] = [
-    { key: "mode", label: "Mode", type: "select", options: ["unify", "ast", "divide", "multiply"], default: "ast" },
+    { key: "ratio_mode", label: "Ratio", type: "select", options: ["none", "multiply", "divide"], default: "none" },
+    { key: "reference", label: "Reference", type: "select", options: ["none", "speed", "torque"], default: "none" },
+    { key: "efficiency", label: "Efficiency", type: "select", options: ["none", "multiply", "divide"], default: "none" },
   ];
 
   static inputs(): PortSpec[] {
@@ -179,33 +180,24 @@ export class ProductTrans extends Transform {
     const pstruct = product.struct<ProductStruct>();
     const ratio = pstruct.ratio();
     const eff = Number(pstruct.params.efficiency ?? 100) / 100;
-    const mode = String(params.mode ?? "ast");
 
-    const unit = (value.unit ?? "").toLowerCase();
-    const isSpeed = unit === "rpm";
-    const isTorque = unit.includes("nm");
+    const ratioMode = String(params.ratio_mode ?? "none");
+    const effMode = String(params.efficiency ?? "none");
+    const reference = String(params.reference ?? "none");
 
-    const nominal = isSpeed ? Number(pstruct.params.nominal_output_speed ?? 0)
-      : isTorque ? Number(pstruct.params.nominal_input_torque ?? 0)
-      : null;
+    let factor = 1;
+    if (ratioMode === "multiply") factor *= ratio;
+    else if (ratioMode === "divide") factor /= ratio;
+    if (effMode === "multiply") factor *= eff;
+    else if (effMode === "divide") factor /= eff;
 
-    const toAbsolute = (): Value => {
-      if (value instanceof PercentageValue) {
-        if (nominal == null) return value.mapChannels((v) => v);
-        const pct = Number(value.params.value ?? 0);
-        return new PlainValue(Number(((pct * nominal) / 100).toFixed(12)));
-      }
-      return value.mapChannels((v) => v);
-    };
-
-    if (mode === "unify") return toAbsolute();
-
-    if (mode === "ast") {
-      const factor = isTorque ? eff / ratio : 1 / ratio;
-      return toAbsolute().mapChannels((v) => v * factor);
+    if (value instanceof PercentageValue && reference !== "none") {
+      const nominal = reference === "torque"
+        ? Number(pstruct.params.nominal_input_torque ?? 0)
+        : Number(pstruct.params.nominal_output_speed ?? 0);
+      const pct = Number(value.params.value ?? 0);
+      return new PlainValue(Number((((pct * nominal) / 100) * factor).toFixed(12)));
     }
-
-    const factor = mode === "multiply" ? ratio : 1 / ratio;
     return value.mapChannels((v) => v * factor);
   }
 }
