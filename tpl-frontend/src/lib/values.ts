@@ -28,6 +28,10 @@ export class Value {
   static readonly displayName: string = "Value";
   static readonly paramsSchema: ParamSpec[] = [];
 
+  // Unit of the underlying quantity (from the bound field definition). Used by
+  // transforms that branch on the input's unit (e.g. speed vs torque).
+  unit: string | null = null;
+
   constructor(public params: Record<string, unknown> = {}) {}
 
   get typeId(): string {
@@ -321,11 +325,12 @@ export class DerivedValue extends Value {
   static readonly displayName: string = "Derived";
 
   constructor(
-    public unit: string | null,
+    unit: string | null,
     public compute: () => NamedValue[],
     params: Record<string, unknown> = {}
   ) {
     super(params);
+    this.unit = unit;
   }
 
   values(): NamedValue[] {

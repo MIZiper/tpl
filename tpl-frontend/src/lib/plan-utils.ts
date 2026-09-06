@@ -8,6 +8,7 @@ import type {
 } from "../types/plan";
 import { createStructValue, type Value } from "./values";
 import { getTransform } from "./transforms";
+import { defUnit } from "./fieldtypes";
 
 let _counter = 0;
 const prefix = Math.random().toString(36).slice(2, 8);
@@ -331,6 +332,8 @@ export function computeStepOutputs(
         if (def?.typeId === "struct") src = createStructValue(def);
       }
       if (!src) { resolved = false; break; }
+      const inDef = findDefinition(definitions, inb.definitionId);
+      if (inDef) src.unit = defUnit(inDef);
       inputs[inb.role] = src;
     }
     if (!resolved) continue;
