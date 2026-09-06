@@ -202,6 +202,66 @@ export class ProductTrans extends Transform {
   }
 }
 
+// ProductBack2Back — back-to-back test of two products (primary under test +
+// companion). LSS shafts are coupled (same speed). `value` is the primary's
+// reference quantity (output speed or input torque per `reference`); percentage
+// values resolve against the primary's nominal. Output quantity + factor depend
+// on reference × run mode:
+//   speed  + motor     -> primary output speed   (= value)
+//   speed  + generator -> companion output speed (= value * Rc/Rp)
+//   torque + motor     -> companion output torque(= value / (Rc*Ec))
+//   torque + generator -> primary output torque  (= value * Ep/Rp)
+export class ProductBack2Back extends Transform {
+  static readonly typeId: string = "product.back2back";
+  static readonly displayName: string = "Back-to-back";
+  static readonly paramsSchema: ParamSpec[] = [
+    { key: "reference", label: "Reference", type: "select", options: ["speed", "torque"], default: "speed" },
+  ];
+
+  static inputs(): PortSpec[] {
+    return [
+      { role: "value", label: "Input value", kind: "fielddef", fieldType: "number" },
+      { role: "primary", label: "Primary", kind: "struct", structType: "product" },
+      { role: "companion", label: "Companion", kind: "struct", structType: "product" },
+      { role: "runmode", label: "Run mode", kind: "fielddef", fieldType: "select" },
+    ];
+  }
+
+  static apply(inputs: Record<string, Value>, params: Record<string, unknown>): Value {
+    const value = inputs["value"];
+    const primary = inputs["primary"];
+    const companion = inputs["companion"];
+    const runmode = inputs["runmode"];
+    if (!(primary instanceof StructValue) || !(companion instanceof StructValue)) {
+      return new DerivedValue(null, () => []);
+    }
+    const p = primary.struct<ProductStruct>();
+    const c = companion.struct<ProductStruct>();
+    const Rp = p.ratio();
+    const Rc = c.ratio();
+    const Ep = Number(p.params.efficiency ?? 100) / 100;
+    const Ec = Number(c.params.efficiency ?? 100) / 100;
+    const mode = String(runmode?.scalar() ?? "").toLowerCase();
+    const reference = String(params.reference ?? "speed");
+
+    let factor: number;
+    if (reference === "speed") {
+      factor = mode === "generator" ? Rc / Rp : 1;
+    } else {
+      factor = mode === "generator" ? Ep / Rp : 1 / (Rc * Ec);
+    }
+
+    if (value instanceof PercentageValue) {
+      const nominal = reference === "torque"
+        ? Number(p.params.nominal_input_torque ?? 0)
+        : Number(p.params.nominal_output_speed ?? 0);
+      const pct = Number(value.params.value ?? 0);
+      return new PlainValue(Number((((pct * nominal) / 100) * factor).toFixed(12)));
+    }
+    return value.mapChannels((v) => v * factor);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
@@ -225,3 +285,4 @@ registerTransform(LinearTransform);
 registerTransform(LookupTransform);
 registerTransform(GearboxTrans);
 registerTransform(ProductTrans);
+registerTransform(ProductBack2Back);
