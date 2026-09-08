@@ -71,7 +71,7 @@ Ports: tpl-backend `8000`, rsp-backend `8001`, tpl-frontend dev `5173`, rsp-fron
   - `PlanFieldDef`: `{ id, typeId, name, params }` — `params.unit` (number); `params.options` (select); `params.criteria` (bool, single string); `params.structTypeId` + struct fields (struct).
   - `FieldBinding`: `{ definition_id, value?, valueTypeId?, params? }` — `value` for plain scalars; `valueTypeId`+`params` for ramp/deviation/percentage/sinusoidal.
   - `TransformDef`: `{ id, name, typeId, inputs:[{role, definitionId}], derivedDefId, derived:{name, unit}, params }`.
-  - `PlanNode`: `{ id, type(group|step), title, children[], duration_minutes, changeover_minutes, input_conditions[]/collection_items[]/completion_criteria[] (FieldBinding[]), system_config, required_executions, step_template_id, solution_step_id }`.
+  - `PlanNode`: `{ id, type(group|step), title, children[], duration_minutes, changeover_minutes, input_conditions[]/collection_items[]/completion_criteria[] (FieldBinding[]), required_executions, step_template_id, solution_step_id }`.
 - `ExecutionDoc`: `{ version, status(idle|in_progress|paused|completed), entries: ExecutionEntry[], pause_history[] }`.
   - `ExecutionEntry`: `{ id, plan_step_id, step_title, type(planned|adhoc), required_executions, executions: ExecutionRun[], selected_bindings }`.
   - `ExecutionRun`: `{ id, status(pending|in_progress|completed|skipped), started_at, completed_at, input_readings[], collection_results[], criteria_results[], notes }`.

@@ -56,11 +56,11 @@ def main():
             "id": "step-1", "type": "step", "title": "Measure torque", "children": [],
             "description": None, "duration_minutes": 30, "changeover_minutes": 5,
             "input_conditions": [{"definition_id": def_id}], "collection_items": [],
-            "completion_criteria": [], "system_config": None, "required_executions": 2,
+            "completion_criteria": [], "required_executions": 2,
             "step_template_id": None, "solution_step_id": None,
         }], "description": None, "duration_minutes": 60, "changeover_minutes": 0,
         "input_conditions": [], "collection_items": [], "completion_criteria": [],
-        "system_config": None, "required_executions": 1, "step_template_id": None,
+        "required_executions": 1, "step_template_id": None,
         "solution_step_id": None,
     }]
     call("PUT", f"{TPL}/documents/{did}/plan-document", {"document": plan})

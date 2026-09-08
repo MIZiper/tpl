@@ -92,7 +92,7 @@ export function addStep(parentId: string | null, index?: number) {
       id: generateId(), type: "step", title: "New Step", children: [],
       description: null, duration_minutes: 60, changeover_minutes: 0,
       input_conditions: [], collection_items: [], completion_criteria: [],
-      system_config: null, required_executions: 1,
+      required_executions: 1,
       step_template_id: null, solution_step_id: null,
     };
     const parent = parentId ? findNode(s.document.root, parentId) : null;
@@ -109,7 +109,7 @@ export function addGroup(parentId: string | null, index?: number) {
       id: generateId(), type: "group", title: "New Group", children: [],
       description: null, duration_minutes: 60, changeover_minutes: 0,
       input_conditions: [], collection_items: [], completion_criteria: [],
-      system_config: null, required_executions: 1,
+      required_executions: 1,
       step_template_id: null, solution_step_id: null,
     };
     const parent = parentId ? findNode(s.document.root, parentId) : null;

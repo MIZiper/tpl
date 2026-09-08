@@ -347,23 +347,6 @@
       {/if}
     </div>
 
-    <!-- System Config -->
-    <div class="mb-3">
-      <label class="form-label fw-bold small">System Config (JSON)</label>
-      <textarea
-        class="form-control form-control-sm"
-        rows="4"
-        style="font-family:monospace; font-size:0.75rem"
-        value={node.system_config ? JSON.stringify(node.system_config, null, 2) : ""}
-        oninput={(e) => {
-          const raw = (e.target as HTMLTextAreaElement).value;
-          try {
-            const parsed = raw.trim() ? JSON.parse(raw) : null;
-            onupdate({ system_config: parsed });
-          } catch { /* ignore invalid JSON while typing */ }
-        }}
-      ></textarea>
-    </div>
     {/if}
 
     {#if node.step_template_id}

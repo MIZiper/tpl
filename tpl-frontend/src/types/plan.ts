@@ -34,7 +34,6 @@ export interface PlanNode {
   input_conditions: FieldBinding[];
   collection_items: FieldBinding[];
   completion_criteria: FieldBinding[];
-  system_config: Record<string, unknown> | null;
   required_executions: number;
   step_template_id: string | null;
   solution_step_id: string | null;

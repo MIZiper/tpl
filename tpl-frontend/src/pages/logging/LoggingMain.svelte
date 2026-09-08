@@ -114,7 +114,6 @@
     duration_minutes: 0,
     changeover_minutes: 0,
     ...adhocBindings,
-    system_config: null,
     required_executions: 1,
   } as PlanNode : null));
 
@@ -326,7 +325,7 @@
       id: ae.id, type: "step", title: ae.step_title, children: [],
       description: null, duration_minutes: 0, changeover_minutes: 0,
       input_conditions: [], collection_items: [], completion_criteria: [],
-      system_config: null, required_executions: 1,
+      required_executions: 1,
       step_template_id: null, solution_step_id: null,
     };
   }
