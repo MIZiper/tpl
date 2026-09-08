@@ -27,6 +27,7 @@
   import { getStructTypes, getStructType } from "../../lib/structs";
   import { getTransforms, getTransform, type PortSpec } from "../../lib/transforms";
   import { generateId } from "../../lib/plan-utils";
+  import { positionMenu } from "../../lib/flip-menu";
   import type {
     PlanNode,
     PlanDocument,
@@ -624,7 +625,7 @@
         {/if}
         {#if contextMenu}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div class="context-menu" style="position:fixed;left:{contextMenu.x}px;top:{contextMenu.y}px" onclick={(e) => e.stopPropagation()}>
+          <div class="context-menu" style="position:fixed;left:0;top:0" use:positionMenu={{ x: contextMenu.x, y: contextMenu.y }} onclick={(e) => e.stopPropagation()}>
             <button class="context-item" onclick={() => { handleCanvasAction("add-step", { nodeId: contextMenu!.nodeId ?? contextMenu!.parentId ?? "" }); closeCtx(); }}>+ Add Step</button>
             <button class="context-item" onclick={() => { handleCanvasAction("add-group", { nodeId: contextMenu!.nodeId ?? contextMenu!.parentId ?? "" }); closeCtx(); }}>+ Add Group</button>
             {#if contextMenu?.nodeId}
