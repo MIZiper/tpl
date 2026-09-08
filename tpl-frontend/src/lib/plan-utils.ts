@@ -6,7 +6,7 @@ import type {
   FieldBinding,
   TransformDef,
 } from "../types/plan";
-import { createStructValue, type Value } from "./values";
+import { createStructValue, createBindingValue, type Value } from "./values";
 import { getTransform } from "./transforms";
 
 let _counter = 0;
@@ -300,6 +300,21 @@ export function findDefinition(defs: PlanDefinitions, id: string): PlanFieldDef 
 export interface StepOutputs {
   byTransform: Record<string, Value>;
   byDef: Record<string, Value>;
+}
+
+// Build the bound Value map for a step from its non-derived input/collection
+// bindings — the source values transforms read from.
+export function nodeBindingValues(
+  definitions: PlanDefinitions,
+  node: { input_conditions: FieldBinding[]; collection_items: FieldBinding[] }
+): Record<string, Value> {
+  const map: Record<string, Value> = {};
+  for (const b of [...node.input_conditions, ...node.collection_items]) {
+    const def = findDefinition(definitions, b.definition_id);
+    if (!def || def.derived === true) continue;
+    map[b.definition_id] = createBindingValue(b, def);
+  }
+  return map;
 }
 
 // Evaluate all transforms for a step. `valuesByDefId` maps definition id ->

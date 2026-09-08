@@ -1,18 +1,16 @@
 <script lang="ts">
-  import type { PlanNode, PlanDefinitions, PlanFieldDef, FieldBinding, TransformDef } from "../../types/plan";
-  import { getValueTypes, getValueType, createBindingValue, type Value } from "../../lib/values";
+  import type { PlanNode, PlanDefinitions, PlanFieldDef, FieldBinding } from "../../types/plan";
+  import { getValueTypes, getValueType, createBindingValue } from "../../lib/values";
   import { getFieldType, defUnit } from "../../lib/fieldtypes";
-  import { computeStepOutputs, parseNum, parseNumInt } from "../../lib/plan-utils";
+  import { parseNum, parseNumInt } from "../../lib/plan-utils";
 
   let {
     node,
     definitions = null,
-    transforms = [],
     onupdate = (_patch: Partial<PlanNode>) => {},
   }: {
     node: PlanNode;
     definitions: PlanDefinitions | null;
-    transforms: TransformDef[];
     onupdate: (patch: Partial<PlanNode>) => void;
   } = $props();
 
@@ -28,25 +26,6 @@
   function isDerivedDef(defId: string): boolean {
     return defField(defId)?.derived === true;
   }
-
-  function producersOf(defId: string): TransformDef[] {
-    return transforms.filter((t) => t.derivedDefId === defId);
-  }
-
-  const stepValues = $derived.by(() => {
-    const map: Record<string, Value> = {};
-    if (!definitions) return map;
-    for (const b of [...node.input_conditions, ...node.collection_items]) {
-      if (isDerivedDef(b.definition_id)) continue;
-      map[b.definition_id] = createBindingValue(b, defField(b.definition_id) ?? undefined);
-    }
-    return map;
-  });
-
-  const liveOutputs = $derived.by(() => {
-    if (!definitions || !transforms.length) return { byTransform: {} as Record<string, Value>, byDef: {} as Record<string, Value> };
-    return computeStepOutputs(transforms, definitions, stepValues);
-  });
 
   function bindingsForCategory(cat: keyof PlanDefinitions): FieldBinding[] {
     const map: Record<string, FieldBinding[]> = {
@@ -193,31 +172,9 @@
           {#if definitions[cat].length > 0 || orphaned.length > 0}
             <div class="mb-3">
               <div class="binding-category">{categoryLabel(cat)}</div>
-              {#each definitions[cat] as f (f.id)}
+              {#each definitions[cat].filter((f) => !isDerivedDef(f.id)) as f (f.id)}
                 {@const binding = node[cat].find(b => b.definition_id === f.id)}
-                {@const isDerived = isDerivedDef(f.id)}
-                {@const producers = producersOf(f.id)}
-                {#if isDerived}
-                  <div class="binding-item computed">
-                    <div class="d-flex align-items-center">
-                      <span class="binding-name">{f.name}</span>
-                      {#if defUnit(f)}<small class="text-muted ms-1">({defUnit(f)})</small>{/if}
-                      <span class="badge bg-secondary ms-1">Computed</span>
-                    </div>
-                    {#if cat === "input_conditions"}
-                      <div class="binding-value mt-1">
-                        <div class="text-muted small mb-1">
-                          Computed via {producers.map(t => t.name).join(", ") || "?"}
-                          {#if liveOutputs.byDef[f.id]}
-                            <span class="ms-1 fw-bold">= {liveOutputs.byDef[f.id].display()}</span>
-                          {:else}
-                            <span class="ms-1 fw-bold">—</span>
-                          {/if}
-                        </div>
-                      </div>
-                    {/if}
-                  </div>
-                {:else if binding}
+                {#if binding}
                   {@const vt = binding.valueTypeId ? getValueType(binding.valueTypeId) : undefined}
                   <div class="binding-item active">
                     <div class="d-flex align-items-center justify-content-between">
@@ -292,23 +249,6 @@
                           {:else}
                             <input type="text" class="form-control form-control-sm" value={binding.value ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; updateBinding(cat, f.id, { value: v || null }); }} placeholder="Value" />
                           {/if}
-                        {/if}
-
-                        <!-- Transforms that produce this field (readouts) -->
-                        {#if producers.length > 0}
-                          <div class="derived-outputs mt-1">
-                            {#each producers as xf (xf.id)}
-                              {@const out = liveOutputs.byTransform[xf.id]}
-                              <div class="derived-output-item">
-                                <span class="derived-output-name">{xf.derived.name || xf.name}</span>
-                                {#if out}
-                                  <span class="derived-output-value">{out.display()}</span>
-                                {:else}
-                                  <span class="derived-output-value text-muted">—</span>
-                                {/if}
-                              </div>
-                            {/each}
-                          </div>
                         {/if}
                       </div>
                     {:else}
@@ -398,10 +338,6 @@
     border-color: #ffc107;
     background: #fff9e6;
   }
-  .binding-item.computed {
-    border-color: #6f42c1;
-    background: #f8f6ff;
-  }
   .orphaned-label {
     font-size: 0.8rem;
     font-weight: 500;
@@ -442,22 +378,5 @@
     font-size: 0.68rem;
     color: #555;
     display: block;
-  }
-  .derived-outputs {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-  }
-  .derived-output-item {
-    padding: 2px 6px;
-    background: #f0f0ff;
-    border: 1px solid #c8c8e4;
-    border-radius: 3px;
-    font-size: 0.7rem;
-  }
-  .derived-output-name {
-    color: #6f42c1;
-    font-weight: 500;
-    margin-right: 4px;
   }
 </style>

@@ -38,6 +38,7 @@
   } from "../../types/plan";
   import PlanCanvas from "./PlanCanvas.svelte";
   import PlanStepEditor from "./PlanStepEditor.svelte";
+  import ComputedFlyout from "./ComputedFlyout.svelte";
 
   let id: string = $derived(route.params.id ?? "");
 
@@ -665,11 +666,13 @@
       <!-- Right -->
       <div class="plan-right">
         {#if selNode}
-          <PlanStepEditor node={selNode} definitions={doc.definitions} transforms={doc.transforms} onupdate={(p) => updateSelected(p)} />
+          <PlanStepEditor node={selNode} definitions={doc.definitions} onupdate={(p) => updateSelected(p)} />
         {:else}
           <div class="p-3 text-center" style="margin-top:3rem"><div style="font-size:3rem;opacity:0.3">{"\u2699"}</div><div class="text-muted">Select a step to edit</div></div>
         {/if}
       </div>
+
+      <ComputedFlyout node={selNode} definitions={doc.definitions} transforms={doc.transforms} />
     </div>
   {/if}
 </div>
