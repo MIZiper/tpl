@@ -89,9 +89,11 @@ export class LinearTransform extends Transform {
   }
 
   static apply(inputs: Record<string, Value>, params: Record<string, unknown>): Value {
+    const value = inputs["value"];
+    if (!value) return new DerivedValue(null, () => []);
     const factor = Number(params.factor ?? 1);
     const offset = Number(params.offset ?? 0);
-    return inputs["value"].mapChannels((v) => v * factor + offset);
+    return value.mapChannels((v) => v * factor + offset);
   }
 }
 
@@ -140,7 +142,7 @@ export class GearboxTrans extends Transform {
   static apply(inputs: Record<string, Value>, params: Record<string, unknown>): Value {
     const value = inputs["value"];
     const gbx = inputs["gearbox"];
-    if (!(gbx instanceof StructValue)) {
+    if (!value || !(gbx instanceof StructValue)) {
       return new DerivedValue(null, () => []);
     }
     const ratio = gbx.struct<GearboxStruct>().ratio();
@@ -174,7 +176,7 @@ export class ProductTrans extends Transform {
   static apply(inputs: Record<string, Value>, params: Record<string, unknown>): Value {
     const value = inputs["value"];
     const product = inputs["product"];
-    if (!(product instanceof StructValue)) {
+    if (!value || !(product instanceof StructValue)) {
       return new DerivedValue(null, () => []);
     }
     const pstruct = product.struct<ProductStruct>();
@@ -232,7 +234,7 @@ export class ProductBack2Back extends Transform {
     const primary = inputs["primary"];
     const companion = inputs["companion"];
     const runmode = inputs["runmode"];
-    if (!(primary instanceof StructValue) || !(companion instanceof StructValue)) {
+    if (!value || !(primary instanceof StructValue) || !(companion instanceof StructValue)) {
       return new DerivedValue(null, () => []);
     }
     const p = primary.struct<ProductStruct>();

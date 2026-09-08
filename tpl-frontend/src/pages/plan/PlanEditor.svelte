@@ -128,15 +128,28 @@
     showDefForm = false;
   }
 
+  function defaultInputsFor(typeId: string): TransformInputBinding[] {
+    const cls = getTransform(typeId);
+    const ports = cls ? cls.inputs() : [];
+    if (ports.some(p => p.variadic)) return [];
+    return ports.map(p => ({ role: p.role, definitionId: "" }));
+  }
+
   function resetTransformForm() {
-    newTransform = { name: "", typeId: "linear", inputs: [], derivedDefId: "", params: {} };
+    const typeId = "linear";
+    newTransform = { name: "", typeId, inputs: defaultInputsFor(typeId), derivedDefId: "", params: {} };
     newTargetMode = "new"; newTargetName = ""; newTargetUnit = "";
+  }
+
+  function openTransformForm() {
+    resetTransformForm();
+    showTransformForm = true;
   }
 
   function onTransformTypeChange(tid: string) {
     const cls = getTransform(tid);
     const ports = cls ? cls.inputs() : [];
-    let inputs = newTransform.inputs;
+    let inputs: TransformInputBinding[] = [];
     if (cls && !ports.some(p => p.variadic)) {
       inputs = ports.map(p => ({ role: p.role, definitionId: newTransform.inputs.find(i => i.role === p.role)?.definitionId ?? "" }));
     }
@@ -146,6 +159,14 @@
   function updateInput(idx: number, patch: Partial<TransformInputBinding>) {
     const inputs = [...newTransform.inputs];
     if (idx >= 0 && idx < inputs.length) inputs[idx] = { ...inputs[idx], ...patch };
+    newTransform = { ...newTransform, inputs };
+  }
+
+  function upsertInput(role: string, patch: Partial<TransformInputBinding>) {
+    const inputs = [...newTransform.inputs];
+    const idx = inputs.findIndex(i => i.role === role);
+    if (idx >= 0) inputs[idx] = { ...inputs[idx], ...patch };
+    else inputs.push({ role, definitionId: "", ...patch });
     newTransform = { ...newTransform, inputs };
   }
 
@@ -207,7 +228,7 @@
   function updateTInput(tId: string, role: string, patch: Partial<TransformInputBinding>) {
     planState.update((s) => {
       if (!s.document) return s;
-      return { ...s, document: { ...s.document, transforms: s.document.transforms.map(t => t.id === tId ? { ...t, inputs: t.inputs.map(i => i.role === role ? { ...i, ...patch } : i) } : t) }, dirty: true };
+      return { ...s, document: { ...s.document, transforms: s.document.transforms.map(t => t.id === tId ? { ...t, inputs: t.inputs.some(i => i.role === role) ? t.inputs.map(i => i.role === role ? { ...i, ...patch } : i) : [...t.inputs, { role, definitionId: "", ...patch }] } : t) }, dirty: true };
     });
   }
 
@@ -418,7 +439,7 @@
             <div class="p-2">
               <div class="d-flex justify-content-between align-items-center mb-2">
                 <small class="fw-bold text-muted">TRANSFORMS</small>
-                <button class="btn btn-sm btn-link" onclick={() => { showTransformForm = true; }}>+</button>
+                <button class="btn btn-sm btn-link" onclick={openTransformForm}>+</button>
               </div>
 
               {#if showTransformForm}
@@ -457,7 +478,7 @@
                         {@const inp = newTransform.inputs.find(i => i.role === port.role)}
                         <div class="mb-1">
                           <label class="form-label small mb-0">{port.label} <small class="text-muted">({port.kind}{port.fieldType ? ` ${port.fieldType}` : ""}{port.structType ? `:${port.structType}` : ""})</small></label>
-                          <select class="form-select form-select-sm" value={inp?.definitionId ?? ""} onchange={(e) => updateInput(newTransform.inputs.findIndex(i => i.role === port.role), { definitionId: (e.target as HTMLSelectElement).value })}>
+                          <select class="form-select form-select-sm" value={inp?.definitionId ?? ""} onchange={(e) => upsertInput(port.role, { definitionId: (e.target as HTMLSelectElement).value })}>
                             <option value="">-- select --</option>
                             {#each candidates as d (d.id)}
                               <option value={d.id}>{d.name}{defUnit(d) ? ` (${defUnit(d)})` : ""}{isDerivedDef(doc, d.id) ? " [computed]" : ""}</option>
