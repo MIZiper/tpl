@@ -19,7 +19,7 @@ export interface PlanDefinitions {
 export interface FieldBinding {
   definition_id: string;
   value?: unknown;                // plain scalar
-  valueTypeId?: string;           // plain | ramp | deviation | percentage | sinusoidal
+  valueTypeId?: string;           // plain | ramp | tolerance | percentage | sinusoidal
   params?: Record<string, unknown>;
 }
 

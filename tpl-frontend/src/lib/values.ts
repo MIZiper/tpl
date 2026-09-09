@@ -145,10 +145,10 @@ export class RampValue extends Value {
   }
 }
 
-// Deviation — nominal value with separate + and - tolerances.
-export class DeviationValue extends Value {
-  static readonly typeId: string = "deviation";
-  static readonly displayName: string = "Deviation";
+// Tolerance — nominal value with separate + and - tolerances.
+export class ToleranceValue extends Value {
+  static readonly typeId: string = "tolerance";
+  static readonly displayName: string = "Tolerance";
   static readonly paramsSchema: ParamSpec[] = [
     { key: "value", label: "Nominal", type: "number", default: 0 },
     { key: "tolerance_plus", label: "Tolerance +", type: "number", default: null },
@@ -182,7 +182,7 @@ export class DeviationValue extends Value {
       const v = this.params[k];
       return v == null || v === "" ? v : fn(Number(v));
     };
-    return new DeviationValue({
+    return new ToleranceValue({
       ...this.params,
       value: map("value"),
       tolerance_plus: map("tolerance_plus"),
@@ -376,8 +376,8 @@ export function createValue(
       return new PlainValue((scalarValue ?? null) as number | string | null, params ?? {});
     case "ramp":
       return new RampValue(params ?? {});
-    case "deviation":
-      return new DeviationValue(params ?? {});
+    case "tolerance":
+      return new ToleranceValue(params ?? {});
     case "percentage":
       return new PercentageValue(params ?? {});
     case "sinusoidal":
@@ -409,7 +409,7 @@ export function createBindingValue(
 
 registerValueType(PlainValue);
 registerValueType(RampValue);
-registerValueType(DeviationValue);
+registerValueType(ToleranceValue);
 registerValueType(PercentageValue);
 registerValueType(SinusoidalValue);
 registerValueType(StructValue);
