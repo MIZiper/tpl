@@ -70,7 +70,7 @@ def main():
     # value type + typed transform round-trip
     plan2["root"][0]["children"][0]["input_conditions"][0] = {
         "definition_id": def_id, "value": None,
-        "valueTypeId": "ramp", "params": {"start_value": 0, "end_value": 100, "duration_seconds": 60},
+        "valueTypeId": "ramp", "params": {"start_value": 0, "end_value": 100, "ramp_rate": 1.666667},
     }
     plan2["transforms"] = [{
         "id": "tf-1", "name": "Half", "typeId": "linear",

@@ -102,34 +102,34 @@ export class PlainValue extends Value {
   }
 }
 
-// Ramp — a range of characteristic values (start → end) with a duration that is
-// descriptive only (not transformed).
+// Ramp — a range of characteristic values (start → end) with a per-second
+// ramp rate. All three channels participate in element-wise transformation.
 export class RampValue extends Value {
   static readonly typeId: string = "ramp";
   static readonly displayName: string = "Ramp";
   static readonly paramsSchema: ParamSpec[] = [
     { key: "start_value", label: "Start Value", type: "number", default: 0 },
     { key: "end_value", label: "End Value", type: "number", default: 100 },
-    { key: "duration_seconds", label: "Duration (s)", type: "number", default: null },
+    { key: "ramp_rate", label: "Ramp Rate (/s)", type: "number", default: null },
   ];
 
   values(): NamedValue[] {
     const start = this.params.start_value;
     const end = this.params.end_value;
-    const dur = this.params.duration_seconds;
+    const rate = this.params.ramp_rate;
     return [
       { name: "start_value", value: start == null || start === "" ? null : Number(start) },
       { name: "end_value", value: end == null || end === "" ? null : Number(end) },
-      { name: "duration_seconds", value: dur == null || dur === "" ? null : Number(dur), transformable: false },
+      { name: "ramp_rate", value: rate == null || rate === "" ? null : Number(rate) },
     ];
   }
 
   display(): string {
     const s = this.params.start_value;
     const e = this.params.end_value;
-    const d = this.params.duration_seconds;
+    const r = this.params.ramp_rate;
     const base = `${fmtNum(s)} → ${fmtNum(e)}`;
-    return d != null && d !== "" ? `${base} over ${fmtNum(d)}s` : base;
+    return r != null && r !== "" ? `${base} at ${fmtNum(r)}/s` : base;
   }
 
   mapChannels(fn: (v: number) => number): Value {
@@ -141,6 +141,7 @@ export class RampValue extends Value {
       ...this.params,
       start_value: map("start_value"),
       end_value: map("end_value"),
+      ramp_rate: map("ramp_rate"),
     });
   }
 }
