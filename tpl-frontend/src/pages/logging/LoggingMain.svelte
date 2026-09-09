@@ -285,7 +285,7 @@
     if (plan?.transforms?.length) {
       for (const t of plan.transforms) {
         const out = outputs.byTransform[t.id];
-        if (out) input_readings.push({ definition_id: t.id, definition_name: t.derived.name || t.name, value: out.scalar("value") });
+        if (out) input_readings.push({ definition_id: t.id, definition_name: defField(t.derivedDefId)?.name || t.name, value: out.scalar("value") });
       }
     }
 

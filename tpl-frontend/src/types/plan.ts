@@ -55,8 +55,7 @@ export interface TransformDef {
   name: string;
   typeId: string;                 // transform class id, e.g. "linear" | "gearbox.trans"
   inputs: TransformInputBinding[];
-  derivedDefId: string;           // definition id holding the derived output
-  derived: { name: string; unit: string | null };
+  derivedDefId: string;           // definition id holding the output field; output name/unit are read from that def
   params: Record<string, unknown>;
 }
 

@@ -75,7 +75,7 @@ def main():
     plan2["transforms"] = [{
         "id": "tf-1", "name": "Half", "typeId": "linear",
         "inputs": [{"role": "value", "definitionId": def_id}],
-        "derivedDefId": "def-derived-1", "derived": {"name": "Half", "unit": "rpm"},
+        "derivedDefId": "def-derived-1",
         "params": {"factor": 0.5, "offset": 0},
     }]
     call("PUT", f"{TPL}/documents/{did}/plan-document", {"document": plan2})
@@ -85,7 +85,7 @@ def main():
           b["valueTypeId"] == "ramp" and b["params"]["end_value"] == 100)
     check("tpl: typed transform round-trip",
           plan3["transforms"][0]["inputs"][0]["definitionId"] == def_id
-          and plan3["transforms"][0]["derived"]["unit"] == "rpm")
+          and plan3["transforms"][0]["derivedDefId"] == "def-derived-1")
 
     edoc, s = call("POST", f"{TPL}/documents/{did}/execution-document/initialize")
     check("tpl: init execution doc from plan",

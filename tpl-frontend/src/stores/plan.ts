@@ -11,6 +11,7 @@ import {
   moveNodeDown,
   addDefinition,
   removeDefinition,
+  updateDefinition,
   generateId,
   deepClone,
   definitionsToFieldBindings,
@@ -146,6 +147,10 @@ export function addDef(category: DefinitionCategory, field: Omit<PlanFieldDef, "
 
 export function removeDef(category: DefinitionCategory, fieldId: string) {
   modDoc((doc) => ({ ...doc, definitions: removeDefinition(doc.definitions, category, fieldId) }));
+}
+
+export function updateDef(category: DefinitionCategory, field: PlanFieldDef) {
+  modDoc((doc) => ({ ...doc, definitions: updateDefinition(doc.definitions, category, field) }));
 }
 
 export function addTemplate(name: string, stepId: string) {

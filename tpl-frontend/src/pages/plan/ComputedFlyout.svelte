@@ -29,8 +29,8 @@
       if (!out) continue;
       const def = findDefinition(definitions, t.derivedDefId);
       list.push({
-        name: def?.name || t.derived.name || t.name,
-        unit: t.derived.unit || (def?.params?.unit as string | undefined) || "",
+        name: def?.name || t.name,
+        unit: def?.params?.unit != null ? String(def.params.unit) : "",
         value: out,
       });
     }

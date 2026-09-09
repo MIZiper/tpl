@@ -15,6 +15,7 @@
     moveUp,
     moveDown,
     addDef,
+    updateDef,
     removeDef,
     addTemplate,
     applyTemplate,
@@ -46,6 +47,7 @@
   let contextMenu = $state<{ x: number; y: number; nodeId: string | null; parentId: string | null; index: number } | null>(null);
   let showDefForm = $state(false);
   let defCategory: keyof PlanDefinitions = $state<keyof PlanDefinitions>("input_conditions");
+  let editingDef = $state<PlanFieldDef | null>(null);
   let newDef = $state({ name: "", typeId: "text" as string });
   let newDefParams = $state<Record<string, unknown>>({});
   let structTypeId = $state("");
@@ -98,13 +100,53 @@
   }
 
   function resetDefForm() {
+    editingDef = null;
     newDef = { name: "", typeId: "text" };
     newDefParams = {};
     structTypeId = ""; structParamValues = {};
   }
 
-  function addNewDef() {
-    if (!newDef.name) return;
+  function openNewDef(cat: keyof PlanDefinitions) {
+    resetDefForm();
+    defCategory = cat;
+    showDefForm = true;
+  }
+
+  function prefillDefForm(field: PlanFieldDef) {
+    newDef = { name: field.name, typeId: field.typeId };
+    const params: Record<string, unknown> = {};
+    const ft = getFieldType(field.typeId);
+    for (const p of ft?.paramsSchema ?? []) {
+      const v = field.params[p.key];
+      if (v == null) {
+        params[p.key] = p.default ?? "";
+        continue;
+      }
+      if (p.type === "textlist") params[p.key] = Array.isArray(v) ? v.join("\n") : String(v);
+      else if (p.type === "number") params[p.key] = v;
+      else params[p.key] = v;
+    }
+    newDefParams = params;
+    structTypeId = field.typeId === "struct" ? String(field.params.structTypeId ?? "") : "";
+    structParamValues = {};
+    if (field.typeId === "struct" && structTypeId) {
+      const vals: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(field.params)) {
+        if (k !== "structTypeId") vals[k] = v;
+      }
+      structParamValues = vals;
+    }
+  }
+
+  function openDefForm(cat: keyof PlanDefinitions, field: PlanFieldDef) {
+    resetDefForm();
+    defCategory = cat;
+    prefillDefForm(field);
+    editingDef = { ...field };
+    showDefForm = true;
+  }
+
+  function buildFieldParams(): Record<string, unknown> {
     const ft = getFieldType(newDef.typeId);
     const params: Record<string, unknown> = {};
     if (ft?.paramsSchema?.length) {
@@ -124,7 +166,23 @@
         if (v !== undefined && v !== "") params[k] = v;
       }
     }
-    addDef(defCategory, { typeId: newDef.typeId, name: newDef.name, params });
+    return params;
+  }
+
+  function submitDef() {
+    if (!newDef.name) return;
+    const params = buildFieldParams();
+    if (editingDef) {
+      updateDef(defCategory, {
+        id: editingDef.id,
+        typeId: newDef.typeId,
+        name: newDef.name,
+        params,
+        derived: editingDef.derived,
+      });
+    } else {
+      addDef(defCategory, { typeId: newDef.typeId, name: newDef.name, params });
+    }
     resetDefForm();
     showDefForm = false;
   }
@@ -200,7 +258,6 @@
       typeId: newTransform.typeId,
       inputs: newTransform.inputs,
       derivedDefId: targetDefId,
-      derived: { name: newTargetName || "", unit: newTargetUnit || null },
       params: newTransform.params,
     };
     planState.update((s) => {
@@ -335,17 +392,17 @@
             <div class="p-2">
               {#each (["input_conditions", "collection_items", "completion_criteria", "custom"] as const) as cat}
                 <div class="mb-2">
-                  <div class="d-flex justify-content-between align-items-center mb-1"><small class="fw-bold text-muted">{catLab(cat)}</small><button class="btn btn-sm btn-link" onclick={() => { defCategory = cat; showDefForm = true; }}>+</button></div>
+                  <div class="d-flex justify-content-between align-items-center mb-1"><small class="fw-bold text-muted">{catLab(cat)}</small><button class="btn btn-sm btn-link" onclick={() => openNewDef(cat)}>+</button></div>
                   {#each doc.definitions[cat] as f (f.id)}
-                    <div class="def-item">
-                      <div class="flex-grow-1">
+                    <div class="def-item" class:editing={editingDef?.id === f.id}>
+                      <button type="button" class="flex-grow-1 def-item-edit" onclick={() => openDefForm(cat, f)} title="Edit field">
                         <span class="me-1">{f.name}</span>
                         <small class="text-muted">({getFieldType(f.typeId)?.describe(f.params) ?? f.typeId})</small>
                         {#if f.typeId === "struct" && f.params.structTypeId}
                           <br /><small class="text-muted">{JSON.stringify(Object.fromEntries(Object.entries(f.params).filter(([k]) => k !== "structTypeId")))}</small>
                         {/if}
                         {#if isDerivedDef(doc, f.id)}<br /><span class="badge bg-secondary">Computed</span>{/if}
-                      </div>
+                      </button>
                       <button class="btn btn-sm btn-close-sm" onclick={() => removeDef(cat, f.id)}>&times;</button>
                     </div>
                   {/each}
@@ -354,13 +411,20 @@
                   {#if showDefForm && defCategory === cat}
                     {@const ft = getFieldType(newDef.typeId)}
                     <div class="card card-body mb-2 bg-light">
+                      {#if editingDef}
+                        <div class="mb-1"><small class="text-muted">Editing field</small></div>
+                      {/if}
                       <div class="mb-2"><input class="form-control form-control-sm" placeholder="Name" bind:value={newDef.name} /></div>
                       <div class="mb-2">
-                        <select class="form-select form-select-sm" bind:value={newDef.typeId}>
-                          {#each getFieldTypes() as f2 (f2.typeId)}
-                            <option value={f2.typeId}>{f2.displayName}</option>
-                          {/each}
-                        </select>
+                        {#if editingDef}
+                          <input class="form-control form-control-sm" value={getFieldType(newDef.typeId)?.displayName ?? newDef.typeId} disabled />
+                        {:else}
+                          <select class="form-select form-select-sm" bind:value={newDef.typeId}>
+                            {#each getFieldTypes() as f2 (f2.typeId)}
+                              <option value={f2.typeId}>{f2.displayName}</option>
+                            {/each}
+                          </select>
+                        {/if}
                       </div>
 
                       {#each (ft?.paramsSchema ?? []) as p (p.key)}
@@ -415,7 +479,7 @@
                         {/if}
                       {/if}
 
-                      <div><button class="btn btn-sm btn-primary me-1" onclick={addNewDef}>Add</button><button class="btn btn-sm btn-secondary" onclick={() => { showDefForm = false; resetDefForm(); }}>Cancel</button></div>
+                      <div><button class="btn btn-sm btn-primary me-1" onclick={submitDef}>{editingDef ? "Save" : "Add"}</button><button class="btn btn-sm btn-secondary" onclick={() => { showDefForm = false; resetDefForm(); }}>Cancel</button></div>
                     </div>
                   {/if}
                 </div>
@@ -546,14 +610,15 @@
                 {@const bindDef = inputDefs.find(d => d.id === t.derivedDefId)}
                 {@const isEditing = editingTransformId === t.id}
                 {@const sourceNames = t.inputs.map(inp => { const d = inputDefs.find(x => x.id === inp.definitionId); return d ? d.name : inp.role; }).join(", ") || "?"}
-                {@const outputName = t.derived.name || bindDef?.name || "?"}
+                {@const outputName = bindDef?.name || "?"}
+                {@const outUnit = bindDef ? defUnit(bindDef) : null}
                 <div class="def-item" onclick={() => editingTransformId = isEditing ? null : t.id} style="cursor:pointer">
                   <div class="flex-grow-1">
                     <div class="d-flex justify-content-between align-items-start">
                       <div>
                         <span>{t.name}</span>
-                        <small class="text-muted d-block">{sourceNames} → {outputName}{t.derived.unit ? ` (${t.derived.unit})` : ""}</small>
-                        <small class="text-muted d-block">on: {bindDef?.name || "?"} · method: {cls?.displayName ?? t.typeId}</small>
+                        <small class="text-muted d-block">{sourceNames} → {outputName}{outUnit ? ` (${outUnit})` : ""}</small>
+                        <small class="text-muted d-block">method: {cls?.displayName ?? t.typeId}</small>
                       </div>
                       <button class="btn btn-sm btn-close-sm" onclick={(e) => { e.stopPropagation(); removeTransform(t.id); }}>&times;</button>
                     </div>
@@ -602,7 +667,7 @@
                       {/if}
                     </div>
                     <div class="mb-2">
-                      <small class="text-muted d-block">Output: {t.derived.name} · on: {bindDef?.name || t.derivedDefId.slice(0,8)}</small>
+                      <small class="text-muted d-block">Output: {bindDef?.name || "?"}{defUnit(bindDef) ? ` (${defUnit(bindDef)})` : ""} · on: {bindDef?.name || t.derivedDefId.slice(0,8)}</small>
                     </div>
                     {#if cls}
                       {#each cls.paramsSchema as p (p.key)}
@@ -695,6 +760,9 @@
   .plan-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%}
   .nav-sm .nav-link{padding:4px 10px;font-size:.8rem}
   .def-item{display:flex;align-items:center;padding:2px 8px;font-size:.8rem;border-left:2px solid #dee2e6;margin:2px 0}
+  .def-item.editing{border-left-color:#6f42c1;background:#f8f6ff}
+  .def-item-edit{cursor:pointer;min-width:0;display:block;text-align:left;border:none;background:none;padding:0;font-size:inherit;color:inherit}
+  .def-item-edit:hover .me-1{text-decoration:underline}
   .btn-close-sm{font-size:.7rem;padding:0;border:none;background:none;color:#999;cursor:pointer;margin-left:auto}
   .context-menu{background:#fff;border:1px solid #dee2e6;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);padding:4px 0;min-width:160px;z-index:1000}
   .context-item{display:block;width:100%;text-align:left;padding:6px 14px;border:none;background:none;font-size:.85rem;cursor:pointer}

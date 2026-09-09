@@ -232,6 +232,17 @@ export function removeDefinition(
   };
 }
 
+export function updateDefinition(
+  defs: PlanDefinitions,
+  category: keyof PlanDefinitions,
+  field: PlanFieldDef
+): PlanDefinitions {
+  return {
+    ...defs,
+    [category]: defs[category].map((f: PlanFieldDef) => (f.id === field.id ? { ...f, ...field } : f)),
+  };
+}
+
 export function flattenAllSteps(root: PlanNode[]): PlanNode[] {
   const result: PlanNode[] = [];
   for (const node of root) {
@@ -347,7 +358,9 @@ export function computeStepOutputs(
       inputs[inb.role] = src;
     }
     if (!resolved) continue;
-    const out = cls.apply(inputs, { ...t.params, derived_unit: t.derived.unit });
+    const outDef = findDefinition(definitions, t.derivedDefId);
+    const derivedUnit = outDef?.params?.unit != null ? String(outDef.params.unit) : null;
+    const out = cls.apply(inputs, { ...t.params, derived_unit: derivedUnit });
     byTransform[t.id] = out;
     outByDefId.set(t.derivedDefId, out);
     byDef[t.derivedDefId] = out;
