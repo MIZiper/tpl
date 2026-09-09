@@ -204,11 +204,13 @@ export class ProductTrans extends Transform {
   }
 }
 
-// ProductBack2Back — back-to-back test of two products (primary under test +
-// companion). LSS shafts are coupled (same speed). `value` is the primary's
-// reference quantity (output speed or input torque per `reference`); percentage
-// values resolve against the primary's nominal. Output quantity + factor depend
-// on reference × run mode:
+// ProductBack2Back — back-to-back test between two products. The two units
+// (Unit A / Unit B) are each bound once to a product struct definition. Which
+// unit acts as the *primary* (the one whose reference quantity `value` is
+// commanded on, and against whose nominal percentages resolve) is chosen
+// per-step through the `primary` select port (options A/B) — so one transform
+// serves both orientations. LSS shafts are coupled (same speed). Output
+// quantity + factor depend on reference × run mode:
 //   speed  + motor     -> primary output speed   (= value)
 //   speed  + generator -> companion output speed (= value * Rc/Rp)
 //   torque + motor     -> companion output torque(= value / (Rc*Ec))
@@ -223,20 +225,24 @@ export class ProductBack2Back extends Transform {
   static inputs(): PortSpec[] {
     return [
       { role: "value", label: "Input value", kind: "fielddef", fieldType: "number" },
-      { role: "primary", label: "Primary", kind: "struct", structType: "product" },
-      { role: "companion", label: "Companion", kind: "struct", structType: "product" },
+      { role: "unit_a", label: "Unit A", kind: "struct", structType: "product" },
+      { role: "unit_b", label: "Unit B", kind: "struct", structType: "product" },
       { role: "runmode", label: "Run mode", kind: "fielddef", fieldType: "select" },
+      { role: "primary", label: "Primary unit", kind: "fielddef", fieldType: "select" },
     ];
   }
 
   static apply(inputs: Record<string, Value>, params: Record<string, unknown>): Value {
     const value = inputs["value"];
-    const primary = inputs["primary"];
-    const companion = inputs["companion"];
+    const unitA = inputs["unit_a"];
+    const unitB = inputs["unit_b"];
     const runmode = inputs["runmode"];
-    if (!value || !(primary instanceof StructValue) || !(companion instanceof StructValue)) {
+    if (!value || !(unitA instanceof StructValue) || !(unitB instanceof StructValue)) {
       return new DerivedValue(null, () => []);
     }
+    const sel = String(inputs["primary"]?.scalar() ?? "").trim().toLowerCase();
+    const primary = sel === "b" ? unitB : unitA;
+    const companion = sel === "b" ? unitA : unitB;
     const p = primary.struct<ProductStruct>();
     const c = companion.struct<ProductStruct>();
     const Rp = p.ratio();
