@@ -50,12 +50,18 @@ export interface TransformInputBinding {
   definitionId: string;
 }
 
+export interface TransformOutputBinding {
+  role: string;                   // output port role declared by the transform class
+  definitionId: string;           // definition id holding this output field; name/unit read from that def
+}
+
 export interface TransformDef {
   id: string;
   name: string;
   typeId: string;                 // transform class id, e.g. "linear" | "gearbox.trans"
   inputs: TransformInputBinding[];
-  derivedDefId: string;           // definition id holding the output field; output name/unit are read from that def
+  outputs?: TransformOutputBinding[]; // one entry per output port; name/unit are read from each def
+  derivedDefId?: string;          // legacy single-output definition id (resolved via outputsOf)
   params: Record<string, unknown>;
 }
 

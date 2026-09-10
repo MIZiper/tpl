@@ -17,6 +17,11 @@ export interface PortSpec {
   variadic?: boolean;
 }
 
+export interface OutputPortSpec {
+  role: string;
+  label: string;
+}
+
 export class Transform {
   static readonly typeId: string = "";
   static readonly displayName: string = "Transform";
@@ -26,8 +31,12 @@ export class Transform {
     return [];
   }
 
-  static apply(inputs: Record<string, Value>, params: Record<string, unknown>): Value {
-    return new PlainValue(null);
+  static outputs(): OutputPortSpec[] {
+    return [{ role: "value", label: "Output" }];
+  }
+
+  static apply(_inputs: Record<string, Value>, _params: Record<string, unknown>): Record<string, Value> {
+    return { value: new PlainValue(null) };
   }
 }
 
@@ -45,10 +54,10 @@ export class FormulaTransform extends Transform {
     return [{ role: "v1", label: "Variable", kind: "fielddef", fieldType: "number", variadic: true }];
   }
 
-  static apply(inputs: Record<string, Value>, params: Record<string, unknown>): Value {
+  static apply(inputs: Record<string, Value>, params: Record<string, unknown>): Record<string, Value> {
     const expr = String(params.expression ?? "");
     const unit = params.derived_unit ? String(params.derived_unit) : null;
-    return new DerivedValue(unit, () => {
+    const value = new DerivedValue(unit, () => {
       if (!expr) return [];
       const roles = Object.keys(inputs);
       const keySet = new Set<string>();
@@ -72,6 +81,7 @@ export class FormulaTransform extends Transform {
         return [];
       }
     });
+    return { value };
   }
 }
 
@@ -88,12 +98,12 @@ export class LinearTransform extends Transform {
     return [{ role: "value", label: "Source value", kind: "fielddef", fieldType: "number" }];
   }
 
-  static apply(inputs: Record<string, Value>, params: Record<string, unknown>): Value {
+  static apply(inputs: Record<string, Value>, params: Record<string, unknown>): Record<string, Value> {
     const value = inputs["value"];
-    if (!value) return new DerivedValue(null, () => []);
+    if (!value) return { value: new DerivedValue(null, () => []) };
     const factor = Number(params.factor ?? 1);
     const offset = Number(params.offset ?? 0);
-    return value.mapChannels((v) => v * factor + offset);
+    return { value: value.mapChannels((v) => v * factor + offset) };
   }
 }
 
@@ -109,10 +119,10 @@ export class LookupTransform extends Transform {
     return [{ role: "key", label: "Lookup key", kind: "fielddef", fieldType: "number" }];
   }
 
-  static apply(inputs: Record<string, Value>, params: Record<string, unknown>): Value {
+  static apply(inputs: Record<string, Value>, params: Record<string, unknown>): Record<string, Value> {
     const table = params.table as [unknown, unknown][] | undefined;
     const unit = params.derived_unit ? String(params.derived_unit) : null;
-    return new DerivedValue(unit, () => {
+    const value = new DerivedValue(unit, () => {
       if (!table || !Array.isArray(table)) return [];
       return inputs["key"].values().map((c) => {
         if (c.transformable === false) return c;
@@ -120,6 +130,7 @@ export class LookupTransform extends Transform {
         return { name: c.name, value: hit ? ((hit[1] as number | string) ?? null) : null };
       });
     });
+    return { value };
   }
 }
 
@@ -139,15 +150,15 @@ export class GearboxTrans extends Transform {
     ];
   }
 
-  static apply(inputs: Record<string, Value>, params: Record<string, unknown>): Value {
+  static apply(inputs: Record<string, Value>, params: Record<string, unknown>): Record<string, Value> {
     const value = inputs["value"];
     const gbx = inputs["gearbox"];
     if (!value || !(gbx instanceof StructValue)) {
-      return new DerivedValue(null, () => []);
+      return { value: new DerivedValue(null, () => []) };
     }
     const ratio = gbx.struct<GearboxStruct>().ratio();
     const factor = String(params.mode ?? "divide") === "multiply" ? ratio : 1 / ratio;
-    return value.mapChannels((v) => v * factor);
+    return { value: value.mapChannels((v) => v * factor) };
   }
 }
 
@@ -173,11 +184,11 @@ export class ProductTrans extends Transform {
     ];
   }
 
-  static apply(inputs: Record<string, Value>, params: Record<string, unknown>): Value {
+  static apply(inputs: Record<string, Value>, params: Record<string, unknown>): Record<string, Value> {
     const value = inputs["value"];
     const product = inputs["product"];
     if (!value || !(product instanceof StructValue)) {
-      return new DerivedValue(null, () => []);
+      return { value: new DerivedValue(null, () => []) };
     }
     const pstruct = product.struct<ProductStruct>();
     const ratio = pstruct.ratio();
@@ -198,56 +209,59 @@ export class ProductTrans extends Transform {
         ? Number(pstruct.params.nominal_input_torque ?? 0)
         : Number(pstruct.params.nominal_output_speed ?? 0);
       const pct = Number(value.params.value ?? 0);
-      return new PlainValue(Number((((pct * nominal) / 100) * factor).toFixed(12)));
+      return { value: new PlainValue(Number((((pct * nominal) / 100) * factor).toFixed(12))) };
     }
-    return value.mapChannels((v) => v * factor);
+    return { value: value.mapChannels((v) => v * factor) };
   }
 }
 
 // ProductBack2Back — back-to-back test between two products. The two units
 // (Unit A / Unit B) are each bound once to a product struct definition. Which
-// unit acts as the *primary* (the one whose reference quantity `value` is
-// commanded on, and against whose nominal percentages resolve) and its run
-// mode are chosen per-step through a single `run_on` select port whose options
-// encode both, e.g. `A:motor` / `A:generator` / `B:motor` / `B:generator`
-// (separator `:` or `-`, case-insensitive) — so one transform serves both
-// orientations and can be switched at run time. Empty/unparsable `run_on`
-// yields no output. LSS shafts are coupled (same speed). Output quantity +
-// factor depend on reference × run mode:
-//   speed  + motor     -> primary output speed   (= value)
-//   speed  + generator -> companion output speed (= value * Rc/Rp)
-//   torque + motor     -> companion output torque(= value / (Rc*Ec))
-//   torque + generator -> primary output torque  (= value * Ep/Rp)
+// unit acts as the *primary* (the one whose commanded quantities are applied
+// and against whose nominals percentages resolve) and its run mode are chosen
+// per-step through a single `run_on` select port whose options encode both,
+// e.g. `A:motor` / `A:generator` / `B:motor` / `B:generator` (separator `:`
+// or `-`, case-insensitive) — so one transform serves both orientations and
+// can be switched at run time. Empty/unparsable `run_on` yields no output.
+// Commanded quantities are supplied by two input ports, `speed` and `torque`;
+// each yields its own output port (unbound input ⇒ omitted output). LSS shafts
+// are coupled (same speed). Per-quantity factor:
+//   speed  + motor     -> primary output speed   (= speed)
+//   speed  + generator -> companion output speed (= speed * Rc/Rp)
+//   torque + motor     -> companion output torque(= torque / (Rc*Ec))
+//   torque + generator -> primary output torque  (= torque * Ep/Rp)
 export class ProductBack2Back extends Transform {
   static readonly typeId: string = "product.back2back";
   static readonly displayName: string = "Back-to-back";
-  static readonly paramsSchema: ParamSpec[] = [
-    { key: "reference", label: "Reference", type: "select", options: ["speed", "torque"], default: "speed" },
-  ];
+  static readonly paramsSchema: ParamSpec[] = [];
 
   static inputs(): PortSpec[] {
     return [
-      { role: "value", label: "Input value", kind: "fielddef", fieldType: "number" },
+      { role: "speed", label: "Input speed", kind: "fielddef", fieldType: "number" },
+      { role: "torque", label: "Input torque", kind: "fielddef", fieldType: "number" },
       { role: "unit_a", label: "Unit A", kind: "struct", structType: "product" },
       { role: "unit_b", label: "Unit B", kind: "struct", structType: "product" },
       { role: "run_on", label: "Run on (unit:mode)", kind: "fielddef", fieldType: "select" },
     ];
   }
 
-  static apply(inputs: Record<string, Value>, params: Record<string, unknown>): Value {
-    const value = inputs["value"];
+  static outputs(): OutputPortSpec[] {
+    return [
+      { role: "speed", label: "Output speed" },
+      { role: "torque", label: "Output torque" },
+    ];
+  }
+
+  static apply(inputs: Record<string, Value>): Record<string, Value> {
+    const out: Record<string, Value> = {};
     const unitA = inputs["unit_a"];
     const unitB = inputs["unit_b"];
-    if (!value || !(unitA instanceof StructValue) || !(unitB instanceof StructValue)) {
-      return new DerivedValue(null, () => []);
-    }
+    if (!(unitA instanceof StructValue) || !(unitB instanceof StructValue)) return out;
     const raw = String(inputs["run_on"]?.scalar() ?? "").trim().toLowerCase();
     const mode = raw.includes("generator") ? "generator" : raw.includes("motor") ? "motor" : "";
     const isA = /(^|[^a-z])a([^a-z]|$)/.test(raw);
     const isB = /(^|[^a-z])b([^a-z]|$)/.test(raw);
-    if (!mode || (!isA && !isB)) {
-      return new DerivedValue(null, () => []);
-    }
+    if (!mode || (!isA && !isB)) return out;
     const primary = isB && !isA ? unitB : unitA;
     const companion = isB && !isA ? unitA : unitB;
     const p = primary.struct<ProductStruct>();
@@ -256,23 +270,24 @@ export class ProductBack2Back extends Transform {
     const Rc = c.ratio();
     const Ep = Number(p.params.efficiency ?? 100) / 100;
     const Ec = Number(c.params.efficiency ?? 100) / 100;
-    const reference = String(params.reference ?? "speed");
 
-    let factor: number;
-    if (reference === "speed") {
-      factor = mode === "generator" ? Rc / Rp : 1;
-    } else {
-      factor = mode === "generator" ? Ep / Rp : 1 / (Rc * Ec);
-    }
+    const scale = (value: Value, factor: number, nominal: number): Value => {
+      if (value instanceof PercentageValue) {
+        const pct = Number(value.params.value ?? 0);
+        return new PlainValue(Number((((pct * nominal) / 100) * factor).toFixed(12)));
+      }
+      return value.mapChannels((v) => v * factor);
+    };
 
-    if (value instanceof PercentageValue) {
-      const nominal = reference === "torque"
-        ? Number(p.params.nominal_input_torque ?? 0)
-        : Number(p.params.nominal_output_speed ?? 0);
-      const pct = Number(value.params.value ?? 0);
-      return new PlainValue(Number((((pct * nominal) / 100) * factor).toFixed(12)));
+    const speed = inputs["speed"];
+    if (speed) {
+      out["speed"] = scale(speed, mode === "generator" ? Rc / Rp : 1, Number(p.params.nominal_output_speed ?? 0));
     }
-    return value.mapChannels((v) => v * factor);
+    const torque = inputs["torque"];
+    if (torque) {
+      out["torque"] = scale(torque, mode === "generator" ? Ep / Rp : 1 / (Rc * Ec), Number(p.params.nominal_input_torque ?? 0));
+    }
+    return out;
   }
 }
 

@@ -3,7 +3,7 @@
   import { p, route } from "../../router";
   import { execState, load, init, saveDoc, startRun, completeRun, updateRun, computeEntryStatus } from "../../stores/execution";
   import { executionApi, planApi } from "../../lib/api";
-  import { findNode, generateId, computeStepOutputs, parseNum } from "../../lib/plan-utils";
+  import { findNode, generateId, computeStepOutputs, outputsOf, parseNum } from "../../lib/plan-utils";
   import { positionMenu } from "../../lib/flip-menu";
   import { createValue, createBindingValue, PlainValue, getValueType, type Value } from "../../lib/values";
   import { defUnit } from "../../lib/fieldtypes";
@@ -165,7 +165,7 @@
   });
 
   const outputs = $derived.by(() => {
-    if (!plan) return { byTransform: {} as Record<string, Value>, byDef: {} as Record<string, Value> };
+    if (!plan) return { byTransform: {} as Record<string, Record<string, Value>>, byDef: {} as Record<string, Value> };
     return computeStepOutputs(plan.transforms ?? [], plan.definitions, stepValues);
   });
 
@@ -284,8 +284,13 @@
 
     if (plan?.transforms?.length) {
       for (const t of plan.transforms) {
-        const out = outputs.byTransform[t.id];
-        if (out) input_readings.push({ definition_id: t.id, definition_name: defField(t.derivedDefId)?.name || t.name, value: out.scalar("value") });
+        const row = outputs.byTransform[t.id];
+        if (!row) continue;
+        for (const ob of outputsOf(t)) {
+          const out = row[ob.role];
+          if (!out) continue;
+          input_readings.push({ definition_id: ob.definitionId, definition_name: defField(ob.definitionId)?.name || t.name, value: out.scalar("value") });
+        }
       }
     }
 

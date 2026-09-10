@@ -5,6 +5,7 @@ import type {
   PlanFieldDef,
   FieldBinding,
   TransformDef,
+  TransformOutputBinding,
 } from "../types/plan";
 import { createStructValue, createBindingValue, type Value } from "./values";
 import { getTransform } from "./transforms";
@@ -309,8 +310,20 @@ export function findDefinition(defs: PlanDefinitions, id: string): PlanFieldDef 
 }
 
 export interface StepOutputs {
-  byTransform: Record<string, Value>;
+  byTransform: Record<string, Record<string, Value>>;
   byDef: Record<string, Value>;
+}
+
+// Resolve a transform's output bindings, falling back to the legacy single
+// `derivedDefId` field for documents written before multi-output existed.
+export function outputsOf(t: TransformDef): TransformOutputBinding[] {
+  if (t.outputs && t.outputs.length) return t.outputs;
+  if (t.derivedDefId) {
+    const cls = getTransform(t.typeId);
+    const role = cls?.outputs()[0]?.role ?? "value";
+    return [{ role, definitionId: t.derivedDefId }];
+  }
+  return [];
 }
 
 // Build the bound Value map for a step from its non-derived input/collection
@@ -336,7 +349,7 @@ export function computeStepOutputs(
   definitions: PlanDefinitions,
   valuesByDefId: Record<string, Value>
 ): StepOutputs {
-  const byTransform: Record<string, Value> = {};
+  const byTransform: Record<string, Record<string, Value>> = {};
   const byDef: Record<string, Value> = {};
   if (!transforms.length) return { byTransform, byDef };
 
@@ -358,12 +371,19 @@ export function computeStepOutputs(
       inputs[inb.role] = src;
     }
     if (!resolved) continue;
-    const outDef = findDefinition(definitions, t.derivedDefId);
-    const derivedUnit = outDef?.params?.unit != null ? String(outDef.params.unit) : null;
-    const out = cls.apply(inputs, { ...t.params, derived_unit: derivedUnit });
-    byTransform[t.id] = out;
-    outByDefId.set(t.derivedDefId, out);
-    byDef[t.derivedDefId] = out;
+    const outs = outputsOf(t);
+    const firstDef = outs.length ? findDefinition(definitions, outs[0].definitionId) : undefined;
+    const derivedUnit = firstDef?.params?.unit != null ? String(firstDef.params.unit) : null;
+    const applied = cls.apply(inputs, { ...t.params, derived_unit: derivedUnit });
+    const row: Record<string, Value> = {};
+    for (const ob of outs) {
+      const out = applied[ob.role];
+      if (!out) continue;
+      row[ob.role] = out;
+      outByDefId.set(ob.definitionId, out);
+      byDef[ob.definitionId] = out;
+    }
+    byTransform[t.id] = row;
   }
 
   return { byTransform, byDef };
@@ -382,7 +402,7 @@ function topologicalSortTransforms(transforms: TransformDef[]): TransformDef[] {
 
   for (const t of transforms) {
     for (const inb of t.inputs) {
-      const srcTf = transforms.find(tf => tf.derivedDefId === inb.definitionId);
+      const srcTf = transforms.find(tf => outputsOf(tf).some(o => o.definitionId === inb.definitionId));
       if (srcTf && tfById.has(srcTf.id)) {
         const deps = adjacency.get(srcTf.id)!;
         deps.push(t.id);

@@ -27,7 +27,7 @@
   import { getFieldTypes, getFieldType, defUnit } from "../../lib/fieldtypes";
   import { getStructTypes, getStructType } from "../../lib/structs";
   import { getTransforms, getTransform, type PortSpec } from "../../lib/transforms";
-  import { generateId } from "../../lib/plan-utils";
+  import { generateId, outputsOf } from "../../lib/plan-utils";
   import { positionMenu } from "../../lib/flip-menu";
   import type {
     PlanNode,
@@ -60,12 +60,9 @@
     name: "",
     typeId: "linear",
     inputs: [] as TransformInputBinding[],
-    derivedDefId: "",
     params: {} as Record<string, unknown>,
   });
-  let newTargetMode = $state<"new" | "existing">("new");
-  let newTargetName = $state("");
-  let newTargetUnit = $state("");
+  let newOutputs = $state<{ role: string; label: string; mode: "new" | "existing"; name: string; unit: string; definitionId: string }[]>([]);
 
   onMount(() => { loadDoc(id, planApi.getDocument); });
 
@@ -194,10 +191,17 @@
     return ports.map(p => ({ role: p.role, definitionId: "" }));
   }
 
+  function defaultOutputsFor(typeId: string) {
+    const cls = getTransform(typeId);
+    return (cls?.outputs() ?? []).map((o) => ({
+      role: o.role, label: o.label, mode: "new" as const, name: "", unit: "", definitionId: "",
+    }));
+  }
+
   function resetTransformForm() {
     const typeId = "linear";
-    newTransform = { name: "", typeId, inputs: defaultInputsFor(typeId), derivedDefId: "", params: {} };
-    newTargetMode = "new"; newTargetName = ""; newTargetUnit = "";
+    newTransform = { name: "", typeId, inputs: defaultInputsFor(typeId), params: {} };
+    newOutputs = defaultOutputsFor(typeId);
   }
 
   function openTransformForm() {
@@ -212,6 +216,8 @@
     if (cls && !ports.some(p => p.variadic)) {
       inputs = ports.map(p => ({ role: p.role, definitionId: newTransform.inputs.find(i => i.role === p.role)?.definitionId ?? "" }));
     }
+    const defaults = defaultOutputsFor(tid);
+    newOutputs = defaults.map(o => newOutputs.find(x => x.role === o.role) ?? o);
     newTransform = { ...newTransform, typeId: tid, inputs, params: {} };
   }
 
@@ -238,26 +244,33 @@
   }
 
   function addTransform() {
-    if (!newTransform.name && !newTargetName) return;
+    if (!newTransform.name) return;
     const doc = $planState.document;
     if (!doc) return;
 
-    let targetDefId = newTransform.derivedDefId;
-    if (newTargetMode === "new" && newTargetName) {
-      targetDefId = generateId();
-      doc.definitions.input_conditions.push({
-        id: targetDefId, typeId: "number", name: newTargetName,
-        params: newTargetUnit ? { unit: newTargetUnit } : {}, derived: true,
-      });
+    const outputs: { role: string; definitionId: string }[] = [];
+    for (const o of newOutputs) {
+      let defId = o.definitionId;
+      if (o.mode === "new") {
+        if (!o.name) return;
+        defId = generateId();
+        doc.definitions.input_conditions.push({
+          id: defId, typeId: "number", name: o.name,
+          params: o.unit ? { unit: o.unit } : {}, derived: true,
+        });
+      }
+      if (!defId) return;
+      outputs.push({ role: o.role, definitionId: defId });
     }
-    if (!targetDefId) return;
+    if (!outputs.length) return;
 
     const t: TransformDef = {
       id: generateId(),
-      name: newTransform.name || newTargetName,
+      name: newTransform.name,
       typeId: newTransform.typeId,
       inputs: newTransform.inputs,
-      derivedDefId: targetDefId,
+      outputs,
+      derivedDefId: outputs[0].definitionId,
       params: newTransform.params,
     };
     planState.update((s) => {
@@ -301,6 +314,17 @@
     planState.update((s) => {
       if (!s.document) return s;
       return { ...s, document: { ...s.document, transforms: s.document.transforms.map(t => t.id === tId ? { ...t, inputs: t.inputs.filter(i => i.role !== role) } : t) }, dirty: true };
+    });
+  }
+
+  function updateTOutput(tId: string, role: string, definitionId: string) {
+    planState.update((s) => {
+      if (!s.document) return s;
+      return { ...s, document: { ...s.document, transforms: s.document.transforms.map(t => {
+        if (t.id !== tId) return t;
+        const outs = outputsOf(t).map(o => o.role === role ? { ...o, definitionId } : o);
+        return { ...t, outputs: outs, derivedDefId: outs[0]?.definitionId || t.derivedDefId };
+      }) }, dirty: true };
     });
   }
 
@@ -558,27 +582,32 @@
                   </div>
 
                   <div class="mb-2">
-                    <small class="text-muted d-block mb-1">Output</small>
-                    <div class="d-flex gap-1 mb-1">
-                      <input class="form-control form-control-sm" placeholder="Derived name" bind:value={newTargetName} />
-                      <input class="form-control form-control-sm" placeholder="Unit" style="max-width:80px" bind:value={newTargetUnit} />
-                    </div>
-                    <div class="form-check form-check-inline mb-1">
-                      <input class="form-check-input" type="radio" name="targetMode" id="targetNew" checked={newTargetMode === "new"} onchange={() => newTargetMode = "new"} />
-                      <label class="form-check-label small" for="targetNew">Bind to new field</label>
-                    </div>
-                    <div class="form-check form-check-inline mb-1">
-                      <input class="form-check-input" type="radio" name="targetMode" id="targetExist" checked={newTargetMode === "existing"} onchange={() => newTargetMode = "existing"} />
-                      <label class="form-check-label small" for="targetExist">Bind to existing</label>
-                    </div>
-                    {#if newTargetMode === "existing"}
-                      <select class="form-select form-select-sm mt-1" bind:value={newTransform.derivedDefId}>
-                        <option value="">-- select field --</option>
-                        {#each inputDefs as d (d.id)}
-                          <option value={d.id}>{d.name}{d.derived ? " [computed]" : ""}</option>
-                        {/each}
-                      </select>
-                    {/if}
+                    <small class="text-muted d-block mb-1">Outputs</small>
+                    {#each newOutputs as o (o.role)}
+                      <div class="mb-2">
+                        <small class="text-muted d-block mb-1 fw-bold">{o.label}</small>
+                        <div class="d-flex gap-1 mb-1">
+                          <input class="form-control form-control-sm" placeholder="Derived name" bind:value={o.name} disabled={o.mode === "existing"} />
+                          <input class="form-control form-control-sm" placeholder="Unit" style="max-width:80px" bind:value={o.unit} disabled={o.mode === "existing"} />
+                        </div>
+                        <div class="form-check form-check-inline mb-1">
+                          <input class="form-check-input" type="radio" name="targetMode-{o.role}" id="targetNew-{o.role}" checked={o.mode === "new"} onchange={() => o.mode = "new"} />
+                          <label class="form-check-label small" for="targetNew-{o.role}">New field</label>
+                        </div>
+                        <div class="form-check form-check-inline mb-1">
+                          <input class="form-check-input" type="radio" name="targetMode-{o.role}" id="targetExist-{o.role}" checked={o.mode === "existing"} onchange={() => o.mode = "existing"} />
+                          <label class="form-check-label small" for="targetExist-{o.role}">Existing</label>
+                        </div>
+                        {#if o.mode === "existing"}
+                          <select class="form-select form-select-sm mt-1" bind:value={o.definitionId}>
+                            <option value="">-- select field --</option>
+                            {#each inputDefs as d (d.id)}
+                              <option value={d.id}>{d.name}{d.derived ? " [computed]" : ""}</option>
+                            {/each}
+                          </select>
+                        {/if}
+                      </div>
+                    {/each}
                   </div>
 
                   {#if selTransform}
@@ -599,7 +628,7 @@
                     {/each}
                   {/if}
 
-                  <div><button class="btn btn-sm btn-primary me-1" onclick={addTransform} disabled={!newTransform.name || (newTargetMode === "existing" && !newTransform.derivedDefId) || (newTargetMode === "new" && !newTargetName)}>Add</button><button class="btn btn-sm btn-secondary" onclick={() => { showTransformForm = false; resetTransformForm(); }}>Cancel</button></div>
+                  <div><button class="btn btn-sm btn-primary me-1" onclick={addTransform} disabled={!newTransform.name || newOutputs.some(o => o.mode === "new" ? !o.name : !o.definitionId)}>Add</button><button class="btn btn-sm btn-secondary" onclick={() => { showTransformForm = false; resetTransformForm(); }}>Cancel</button></div>
                 </div>
               {/if}
 
@@ -607,17 +636,15 @@
                 {@const cls = getTransform(t.typeId)}
                 {@const ports = cls?.inputs() ?? []}
                 {@const variadic = ports.some(p => p.variadic)}
-                {@const bindDef = inputDefs.find(d => d.id === t.derivedDefId)}
                 {@const isEditing = editingTransformId === t.id}
                 {@const sourceNames = t.inputs.map(inp => { const d = inputDefs.find(x => x.id === inp.definitionId); return d ? d.name : inp.role; }).join(", ") || "?"}
-                {@const outputName = bindDef?.name || "?"}
-                {@const outUnit = bindDef ? defUnit(bindDef) : null}
+                {@const outNames = outputsOf(t).map(o => inputDefs.find(d => d.id === o.definitionId)?.name).filter(Boolean).join(" + ") || "?"}
                 <div class="def-item" onclick={() => editingTransformId = isEditing ? null : t.id} style="cursor:pointer">
                   <div class="flex-grow-1">
                     <div class="d-flex justify-content-between align-items-start">
                       <div>
                         <span>{t.name}</span>
-                        <small class="text-muted d-block">{sourceNames} → {outputName}{outUnit ? ` (${outUnit})` : ""}</small>
+                        <small class="text-muted d-block">{sourceNames} → {outNames}</small>
                         <small class="text-muted d-block">method: {cls?.displayName ?? t.typeId}</small>
                       </div>
                       <button class="btn btn-sm btn-close-sm" onclick={(e) => { e.stopPropagation(); removeTransform(t.id); }}>&times;</button>
@@ -667,7 +694,18 @@
                       {/if}
                     </div>
                     <div class="mb-2">
-                      <small class="text-muted d-block">Output: {bindDef?.name || "?"}{defUnit(bindDef) ? ` (${defUnit(bindDef)})` : ""} · on: {bindDef?.name || t.derivedDefId.slice(0,8)}</small>
+                      <small class="text-muted d-block mb-1">Outputs</small>
+                      {#each outputsOf(t) as ob (ob.role)}
+                        <div class="d-flex gap-1 mb-1 align-items-center">
+                          <small class="text-muted" style="min-width:90px">{ob.role}</small>
+                          <select class="form-select form-select-sm" value={ob.definitionId} onchange={(e) => updateTOutput(t.id, ob.role, (e.target as HTMLSelectElement).value)}>
+                            <option value="">-- select --</option>
+                            {#each inputDefs as d (d.id)}
+                              <option value={d.id}>{d.name}{isDerivedDef(doc, d.id) ? " [computed]" : ""}</option>
+                            {/each}
+                          </select>
+                        </div>
+                      {/each}
                     </div>
                     {#if cls}
                       {#each cls.paramsSchema as p (p.key)}

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { computeStepOutputs, nodeBindingValues, findDefinition } from "../../lib/plan-utils";
+  import { computeStepOutputs, nodeBindingValues, findDefinition, outputsOf } from "../../lib/plan-utils";
   import type { Value } from "../../lib/values";
   import type { PlanNode, PlanDefinitions, TransformDef } from "../../types/plan";
 
@@ -17,7 +17,7 @@
 
   const outputs = $derived.by(() => {
     if (!node || node.type !== "step") {
-      return { byTransform: {} as Record<string, Value>, byDef: {} as Record<string, Value> };
+      return { byTransform: {} as Record<string, Record<string, Value>>, byDef: {} as Record<string, Value> };
     }
     return computeStepOutputs(transforms, definitions, nodeBindingValues(definitions, node));
   });
@@ -25,14 +25,18 @@
   const rows = $derived.by(() => {
     const list: { name: string; unit: string; value: Value }[] = [];
     for (const t of transforms) {
-      const out = outputs.byTransform[t.id];
-      if (!out) continue;
-      const def = findDefinition(definitions, t.derivedDefId);
-      list.push({
-        name: def?.name || t.name,
-        unit: def?.params?.unit != null ? String(def.params.unit) : "",
-        value: out,
-      });
+      const row = outputs.byTransform[t.id];
+      if (!row) continue;
+      for (const ob of outputsOf(t)) {
+        const out = row[ob.role];
+        if (!out) continue;
+        const def = findDefinition(definitions, ob.definitionId);
+        list.push({
+          name: def?.name || t.name,
+          unit: def?.params?.unit != null ? String(def.params.unit) : "",
+          value: out,
+        });
+      }
     }
     return list;
   });
