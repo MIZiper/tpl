@@ -207,10 +207,13 @@ export class ProductTrans extends Transform {
 // ProductBack2Back — back-to-back test between two products. The two units
 // (Unit A / Unit B) are each bound once to a product struct definition. Which
 // unit acts as the *primary* (the one whose reference quantity `value` is
-// commanded on, and against whose nominal percentages resolve) is chosen
-// per-step through the `primary` select port (options A/B) — so one transform
-// serves both orientations. LSS shafts are coupled (same speed). Output
-// quantity + factor depend on reference × run mode:
+// commanded on, and against whose nominal percentages resolve) and its run
+// mode are chosen per-step through a single `run_on` select port whose options
+// encode both, e.g. `A:motor` / `A:generator` / `B:motor` / `B:generator`
+// (separator `:` or `-`, case-insensitive) — so one transform serves both
+// orientations and can be switched at run time. Empty/unparsable `run_on`
+// yields no output. LSS shafts are coupled (same speed). Output quantity +
+// factor depend on reference × run mode:
 //   speed  + motor     -> primary output speed   (= value)
 //   speed  + generator -> companion output speed (= value * Rc/Rp)
 //   torque + motor     -> companion output torque(= value / (Rc*Ec))
@@ -227,8 +230,7 @@ export class ProductBack2Back extends Transform {
       { role: "value", label: "Input value", kind: "fielddef", fieldType: "number" },
       { role: "unit_a", label: "Unit A", kind: "struct", structType: "product" },
       { role: "unit_b", label: "Unit B", kind: "struct", structType: "product" },
-      { role: "runmode", label: "Run mode", kind: "fielddef", fieldType: "select" },
-      { role: "primary", label: "Primary unit", kind: "fielddef", fieldType: "select" },
+      { role: "run_on", label: "Run on (unit:mode)", kind: "fielddef", fieldType: "select" },
     ];
   }
 
@@ -236,20 +238,24 @@ export class ProductBack2Back extends Transform {
     const value = inputs["value"];
     const unitA = inputs["unit_a"];
     const unitB = inputs["unit_b"];
-    const runmode = inputs["runmode"];
     if (!value || !(unitA instanceof StructValue) || !(unitB instanceof StructValue)) {
       return new DerivedValue(null, () => []);
     }
-    const sel = String(inputs["primary"]?.scalar() ?? "").trim().toLowerCase();
-    const primary = sel === "b" ? unitB : unitA;
-    const companion = sel === "b" ? unitA : unitB;
+    const raw = String(inputs["run_on"]?.scalar() ?? "").trim().toLowerCase();
+    const mode = raw.includes("generator") ? "generator" : raw.includes("motor") ? "motor" : "";
+    const isA = /(^|[^a-z])a([^a-z]|$)/.test(raw);
+    const isB = /(^|[^a-z])b([^a-z]|$)/.test(raw);
+    if (!mode || (!isA && !isB)) {
+      return new DerivedValue(null, () => []);
+    }
+    const primary = isB && !isA ? unitB : unitA;
+    const companion = isB && !isA ? unitA : unitB;
     const p = primary.struct<ProductStruct>();
     const c = companion.struct<ProductStruct>();
     const Rp = p.ratio();
     const Rc = c.ratio();
     const Ep = Number(p.params.efficiency ?? 100) / 100;
     const Ec = Number(c.params.efficiency ?? 100) / 100;
-    const mode = String(runmode?.scalar() ?? "").toLowerCase();
     const reference = String(params.reference ?? "speed");
 
     let factor: number;
