@@ -75,5 +75,17 @@ export class ProductStruct extends StructType {
   }
 }
 
+// Bench — physical back-to-back test bench wiring. `unit_a_side` says which
+// motor system (left/right) Unit A's output is connected to; Unit B uses the
+// other side.
+export class BenchStruct extends StructType {
+  static readonly typeId: string = "bench";
+  static readonly displayName: string = "Bench";
+  static readonly fieldsSchema: StructField[] = [
+    { key: "unit_a_side", label: "Unit A side", dataType: "select", options: ["left", "right"] },
+  ];
+}
+
 registerStructType(GearboxStruct);
 registerStructType(ProductStruct);
+registerStructType(BenchStruct);

@@ -5,7 +5,7 @@
 // change shape (formula, lookup) or branch on input type (ProductTrans) return
 // a concrete value or a generic DerivedValue as appropriate.
 import { Value, DerivedValue, PlainValue, StructValue, PercentageValue, type NamedValue } from "./values";
-import { GearboxStruct, ProductStruct } from "./structs";
+import { GearboxStruct, ProductStruct, BenchStruct } from "./structs";
 import type { ParamSpec } from "./params";
 
 export interface PortSpec {
@@ -38,6 +38,22 @@ export class Transform {
   static apply(_inputs: Record<string, Value>, _params: Record<string, unknown>): Record<string, Value> {
     return { value: new PlainValue(null) };
   }
+}
+
+export interface RunOn {
+  primary: "A" | "B";
+  mode: "motor" | "generator";
+}
+
+// Parse a RunOn select token such as `A:motor` / `B-generator` (separator `:`
+// or `-`, case-insensitive). Returns null when the token is empty/unparsable.
+export function parseRunOn(raw: unknown): RunOn | null {
+  const s = String(raw ?? "").trim().toLowerCase();
+  const mode = s.includes("generator") ? "generator" : s.includes("motor") ? "motor" : "";
+  const isA = /(^|[^a-z])a([^a-z]|$)/.test(s);
+  const isB = /(^|[^a-z])b([^a-z]|$)/.test(s);
+  if (!mode || (!isA && !isB)) return null;
+  return { primary: isB && !isA ? "B" : "A", mode };
 }
 
 // Formula — variadic numeric ports; role names become expression variables.
@@ -257,19 +273,17 @@ export class ProductBack2Back extends Transform {
     const unitA = inputs["unit_a"];
     const unitB = inputs["unit_b"];
     if (!(unitA instanceof StructValue) || !(unitB instanceof StructValue)) return out;
-    const raw = String(inputs["run_on"]?.scalar() ?? "").trim().toLowerCase();
-    const mode = raw.includes("generator") ? "generator" : raw.includes("motor") ? "motor" : "";
-    const isA = /(^|[^a-z])a([^a-z]|$)/.test(raw);
-    const isB = /(^|[^a-z])b([^a-z]|$)/.test(raw);
-    if (!mode || (!isA && !isB)) return out;
-    const primary = isB && !isA ? unitB : unitA;
-    const companion = isB && !isA ? unitA : unitB;
+    const run = parseRunOn(inputs["run_on"]?.scalar());
+    if (!run) return out;
+    const primary = run.primary === "B" ? unitB : unitA;
+    const companion = run.primary === "B" ? unitA : unitB;
     const p = primary.struct<ProductStruct>();
     const c = companion.struct<ProductStruct>();
     const Rp = p.ratio();
     const Rc = c.ratio();
     const Ep = Number(p.params.efficiency ?? 100) / 100;
     const Ec = Number(c.params.efficiency ?? 100) / 100;
+    const mode = run.mode;
 
     const scale = (value: Value, factor: number, nominal: number): Value => {
       if (value instanceof PercentageValue) {
@@ -287,6 +301,61 @@ export class ProductBack2Back extends Transform {
     if (torque) {
       out["torque"] = scale(torque, mode === "generator" ? Ep / Rp : 1 / (Rc * Ec), Number(p.params.nominal_input_torque ?? 0));
     }
+    return out;
+  }
+}
+
+// B2BRoute — distribute the two back-to-back control quantities (speed,
+// torque) to the left/right motor systems. Which system executes which
+// quantity depends on the run mode and on the bench wiring:
+//   motor     -> speed on the primary unit's side, torque on the companion's
+//   generator -> speed on the companion unit's side, torque on the primary's
+// `bench` is a `bench` struct whose `unit_a_side` (left/right) fixes the
+// wiring; Unit B is on the other side. The speed/torque Values pass through
+// unchanged; the inactive side is left without an output.
+export class B2BRoute extends Transform {
+  static readonly typeId: string = "b2b.route";
+  static readonly displayName: string = "B2B motor routing";
+  static readonly paramsSchema: ParamSpec[] = [];
+
+  static inputs(): PortSpec[] {
+    return [
+      { role: "speed", label: "Speed command", kind: "fielddef", fieldType: "number" },
+      { role: "torque", label: "Torque command", kind: "fielddef", fieldType: "number" },
+      { role: "run_on", label: "Run on (unit:mode)", kind: "fielddef", fieldType: "select" },
+      { role: "bench", label: "Bench", kind: "struct", structType: "bench" },
+    ];
+  }
+
+  static outputs(): OutputPortSpec[] {
+    return [
+      { role: "left_speed", label: "Left speed" },
+      { role: "left_torque", label: "Left torque" },
+      { role: "right_speed", label: "Right speed" },
+      { role: "right_torque", label: "Right torque" },
+    ];
+  }
+
+  static apply(inputs: Record<string, Value>): Record<string, Value> {
+    const bench = inputs["bench"];
+    const run = parseRunOn(inputs["run_on"]?.scalar());
+    if (!(bench instanceof StructValue) || !run) return {};
+    const sideA = String(bench.struct<BenchStruct>().params.unit_a_side ?? "left").trim().toLowerCase();
+    const sideAIsLeft = sideA !== "right";
+    const sideOf = (isA: boolean): "left" | "right" => {
+      const isLeft = isA ? sideAIsLeft : !sideAIsLeft;
+      return isLeft ? "left" : "right";
+    };
+    const primarySide = sideOf(run.primary === "A");
+    const companionSide = sideOf(run.primary !== "A");
+    const speedSide = run.mode === "motor" ? primarySide : companionSide;
+    const torqueSide = run.mode === "motor" ? companionSide : primarySide;
+
+    const out: Record<string, Value> = {};
+    const speed = inputs["speed"];
+    if (speed) out[`${speedSide}_speed`] = speed;
+    const torque = inputs["torque"];
+    if (torque) out[`${torqueSide}_torque`] = torque;
     return out;
   }
 }
@@ -315,3 +384,4 @@ registerTransform(LookupTransform);
 registerTransform(GearboxTrans);
 registerTransform(ProductTrans);
 registerTransform(ProductBack2Back);
+registerTransform(B2BRoute);
