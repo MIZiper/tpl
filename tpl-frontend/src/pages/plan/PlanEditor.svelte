@@ -62,7 +62,7 @@
     inputs: [] as TransformInputBinding[],
     params: {} as Record<string, unknown>,
   });
-  let newOutputs = $state<{ role: string; label: string; mode: "new" | "existing"; name: string; unit: string; definitionId: string }[]>([]);
+  let newOutputs = $state<{ role: string; label: string; name: string; unit: string }[]>([]);
 
   onMount(() => { loadDoc(id, planApi.getDocument); });
 
@@ -194,7 +194,7 @@
   function defaultOutputsFor(typeId: string) {
     const cls = getTransform(typeId);
     return (cls?.outputs() ?? []).map((o) => ({
-      role: o.role, label: o.label, mode: "new" as const, name: "", unit: "", definitionId: "",
+      role: o.role, label: o.label, name: "", unit: "",
     }));
   }
 
@@ -250,16 +250,12 @@
 
     const outputs: { role: string; definitionId: string }[] = [];
     for (const o of newOutputs) {
-      let defId = o.definitionId;
-      if (o.mode === "new") {
-        if (!o.name) return;
-        defId = generateId();
-        doc.definitions.input_conditions.push({
-          id: defId, typeId: "number", name: o.name,
-          params: o.unit ? { unit: o.unit } : {}, derived: true,
-        });
-      }
-      if (!defId) return;
+      if (!o.name) return;
+      const defId = generateId();
+      doc.definitions.input_conditions.push({
+        id: defId, typeId: "number", name: o.name,
+        params: o.unit ? { unit: o.unit } : {}, derived: true,
+      });
       outputs.push({ role: o.role, definitionId: defId });
     }
     if (!outputs.length) return;
@@ -314,17 +310,6 @@
     planState.update((s) => {
       if (!s.document) return s;
       return { ...s, document: { ...s.document, transforms: s.document.transforms.map(t => t.id === tId ? { ...t, inputs: t.inputs.filter(i => i.role !== role) } : t) }, dirty: true };
-    });
-  }
-
-  function updateTOutput(tId: string, role: string, definitionId: string) {
-    planState.update((s) => {
-      if (!s.document) return s;
-      return { ...s, document: { ...s.document, transforms: s.document.transforms.map(t => {
-        if (t.id !== tId) return t;
-        const outs = outputsOf(t).map(o => o.role === role ? { ...o, definitionId } : o);
-        return { ...t, outputs: outs, derivedDefId: outs[0]?.definitionId || t.derivedDefId };
-      }) }, dirty: true };
     });
   }
 
@@ -587,25 +572,9 @@
                       <div class="mb-2">
                         <small class="text-muted d-block mb-1 fw-bold">{o.label}</small>
                         <div class="d-flex gap-1 mb-1">
-                          <input class="form-control form-control-sm" placeholder="Derived name" bind:value={o.name} disabled={o.mode === "existing"} />
-                          <input class="form-control form-control-sm" placeholder="Unit" style="max-width:80px" bind:value={o.unit} disabled={o.mode === "existing"} />
+                          <input class="form-control form-control-sm" placeholder="Derived name" bind:value={o.name} />
+                          <input class="form-control form-control-sm" placeholder="Unit" style="max-width:80px" bind:value={o.unit} />
                         </div>
-                        <div class="form-check form-check-inline mb-1">
-                          <input class="form-check-input" type="radio" name="targetMode-{o.role}" id="targetNew-{o.role}" checked={o.mode === "new"} onchange={() => o.mode = "new"} />
-                          <label class="form-check-label small" for="targetNew-{o.role}">New field</label>
-                        </div>
-                        <div class="form-check form-check-inline mb-1">
-                          <input class="form-check-input" type="radio" name="targetMode-{o.role}" id="targetExist-{o.role}" checked={o.mode === "existing"} onchange={() => o.mode = "existing"} />
-                          <label class="form-check-label small" for="targetExist-{o.role}">Existing</label>
-                        </div>
-                        {#if o.mode === "existing"}
-                          <select class="form-select form-select-sm mt-1" bind:value={o.definitionId}>
-                            <option value="">-- select field --</option>
-                            {#each inputDefs as d (d.id)}
-                              <option value={d.id}>{d.name}{d.derived ? " [computed]" : ""}</option>
-                            {/each}
-                          </select>
-                        {/if}
                       </div>
                     {/each}
                   </div>
@@ -628,7 +597,7 @@
                     {/each}
                   {/if}
 
-                  <div><button class="btn btn-sm btn-primary me-1" onclick={addTransform} disabled={!newTransform.name || newOutputs.some(o => o.mode === "new" ? !o.name : !o.definitionId)}>Add</button><button class="btn btn-sm btn-secondary" onclick={() => { showTransformForm = false; resetTransformForm(); }}>Cancel</button></div>
+                  <div><button class="btn btn-sm btn-primary me-1" onclick={addTransform} disabled={!newTransform.name || newOutputs.some(o => !o.name)}>Add</button><button class="btn btn-sm btn-secondary" onclick={() => { showTransformForm = false; resetTransformForm(); }}>Cancel</button></div>
                 </div>
               {/if}
 
@@ -639,6 +608,7 @@
                 {@const isEditing = editingTransformId === t.id}
                 {@const sourceNames = t.inputs.map(inp => { const d = inputDefs.find(x => x.id === inp.definitionId); return d ? d.name : inp.role; }).join(", ") || "?"}
                 {@const outNames = outputsOf(t).map(o => inputDefs.find(d => d.id === o.definitionId)?.name).filter(Boolean).join(" + ") || "?"}
+                {@const multiOutput = outputsOf(t).length > 1}
                 <div class="def-item" onclick={() => editingTransformId = isEditing ? null : t.id} style="cursor:pointer">
                   <div class="flex-grow-1">
                     <div class="d-flex justify-content-between align-items-start">
@@ -696,14 +666,10 @@
                     <div class="mb-2">
                       <small class="text-muted d-block mb-1">Outputs</small>
                       {#each outputsOf(t) as ob (ob.role)}
+                        {@const od = inputDefs.find(d => d.id === ob.definitionId)}
                         <div class="d-flex gap-1 mb-1 align-items-center">
-                          <small class="text-muted" style="min-width:90px">{ob.role}</small>
-                          <select class="form-select form-select-sm" value={ob.definitionId} onchange={(e) => updateTOutput(t.id, ob.role, (e.target as HTMLSelectElement).value)}>
-                            <option value="">-- select --</option>
-                            {#each inputDefs as d (d.id)}
-                              <option value={d.id}>{d.name}{isDerivedDef(doc, d.id) ? " [computed]" : ""}</option>
-                            {/each}
-                          </select>
+                          {#if multiOutput}<small class="text-muted" style="min-width:90px">{ob.role}</small>{/if}
+                          <small>{od ? `${od.name}${defUnit(od) ? ` (${defUnit(od)})` : ""}` : "(missing)"}</small>
                         </div>
                       {/each}
                     </div>
