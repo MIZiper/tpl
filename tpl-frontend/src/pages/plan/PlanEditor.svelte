@@ -17,6 +17,7 @@
     addDef,
     updateDef,
     removeDef,
+    updateInputLayout,
     addTemplate,
     applyTemplate,
     delTemplate,
@@ -27,7 +28,7 @@
   import { getFieldTypes, getFieldType, defUnit } from "../../lib/fieldtypes";
   import { getStructTypes, getStructType } from "../../lib/structs";
   import { getTransforms, getTransform, type PortSpec } from "../../lib/transforms";
-  import { generateId, outputsOf } from "../../lib/plan-utils";
+  import { generateId, outputsOf, orderedInputDefs } from "../../lib/plan-utils";
   import { positionMenu } from "../../lib/flip-menu";
   import type {
     PlanNode,
@@ -40,6 +41,7 @@
   import PlanCanvas from "./PlanCanvas.svelte";
   import PlanStepEditor from "./PlanStepEditor.svelte";
   import ComputedFlyout from "./ComputedFlyout.svelte";
+  import InputLayoutModal from "./InputLayoutModal.svelte";
 
   let id: string = $derived(route.params.id ?? "");
 
@@ -53,6 +55,7 @@
   let structTypeId = $state("");
   let structParamValues = $state<Record<string, unknown>>({});
   let newTemplateName = $state("");
+  let showInputLayout = $state(false);
 
   let showTransformForm = $state(false);
   let editingTransformId = $state<string | null>(null);
@@ -345,6 +348,12 @@
 <div class="plan-editor">
   <div class="plan-toolbar">
     <a href={p("/documents/:id", { params: { id } })} class="btn btn-sm btn-outline-secondary">Back</a>
+    <button
+      class="btn btn-sm btn-outline-primary ms-1"
+      onclick={() => (showInputLayout = true)}
+      disabled={!$planState.document || $planState.document.definitions.input_conditions.length === 0}
+      title="Edit the global Input order and width with a live preview"
+    >Input layout</button>
     <span class="flex-grow-1"></span>
     {#if $planState.dirty}
       <button class="btn btn-sm btn-success" onclick={() => saveDoc(id, planApi.saveDocument)}>Save *</button>
@@ -400,9 +409,13 @@
           {:else if leftTab === "definitions"}
             <div class="p-2">
               {#each (["input_conditions", "collection_items", "completion_criteria", "custom"] as const) as cat}
+                {@const catDefs = cat === "input_conditions" ? orderedInputDefs(doc.definitions.input_conditions, doc.input_layout) : doc.definitions[cat]}
                 <div class="mb-2">
-                  <div class="d-flex justify-content-between align-items-center mb-1"><small class="fw-bold text-muted">{catLab(cat)}</small><button class="btn btn-sm btn-link" onclick={() => openNewDef(cat)}>+</button></div>
-                  {#each doc.definitions[cat] as f (f.id)}
+                  <div class="d-flex justify-content-between align-items-center mb-1">
+                    <small class="fw-bold text-muted">{catLab(cat)}</small>
+                    <button class="btn btn-sm btn-link" onclick={() => openNewDef(cat)}>+</button>
+                  </div>
+                  {#each catDefs as f (f.id)}
                     <div class="def-item" class:editing={editingDef?.id === f.id}>
                       <button type="button" class="flex-grow-1 def-item-edit" onclick={() => openDefForm(cat, f)} title="Edit field">
                         <span class="me-1">{f.name}</span>
@@ -735,7 +748,7 @@
       <!-- Right -->
       <div class="plan-right">
         {#if selNode}
-          <PlanStepEditor node={selNode} definitions={doc.definitions} onupdate={(p) => updateSelected(p)} />
+          <PlanStepEditor node={selNode} definitions={doc.definitions} inputLayout={doc.input_layout ?? []} onupdate={(p) => updateSelected(p)} />
         {:else}
           <div class="p-3 text-center" style="margin-top:3rem"><div style="font-size:3rem;opacity:0.3">{"\u2699"}</div><div class="text-muted">Select a step to edit</div></div>
         {/if}
@@ -743,6 +756,15 @@
 
       <ComputedFlyout node={selNode} definitions={doc.definitions} transforms={doc.transforms} />
     </div>
+
+    {#if showInputLayout}
+      <InputLayoutModal
+        definitions={doc.definitions}
+        layout={doc.input_layout ?? []}
+        onapply={(l) => { updateInputLayout(l); showInputLayout = false; }}
+        onclose={() => (showInputLayout = false)}
+      />
+    {/if}
   {/if}
 </div>
 

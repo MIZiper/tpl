@@ -1,5 +1,5 @@
 import { writable, derived, get } from "svelte/store";
-import type { PlanDocument, PlanNode, PlanFieldDef, PlanDefinitions, FieldBinding } from "../types/plan";
+import type { PlanDocument, PlanNode, PlanFieldDef, PlanDefinitions, FieldBinding, InputLayoutItem } from "../types/plan";
 import {
   createDefaultDocument,
   findNode,
@@ -151,6 +151,10 @@ export function removeDef(category: DefinitionCategory, fieldId: string) {
 
 export function updateDef(category: DefinitionCategory, field: PlanFieldDef) {
   modDoc((doc) => ({ ...doc, definitions: updateDefinition(doc.definitions, category, field) }));
+}
+
+export function updateInputLayout(layout: InputLayoutItem[]) {
+  modDoc((doc) => ({ ...doc, input_layout: layout }));
 }
 
 export function addTemplate(name: string, stepId: string) {

@@ -49,6 +49,7 @@ class PlanDocument(BaseModel):
     root: list[Any] = Field(default_factory=list)
     templates: list[Any] = Field(default_factory=list)
     transforms: list[Any] = Field(default_factory=list)
+    input_layout: list[Any] = Field(default_factory=list)
 
 
 class PlanDocumentUpdate(BaseModel):

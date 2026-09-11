@@ -3,7 +3,7 @@
   import { p, route } from "../../router";
   import { execState, load, init, saveDoc, startRun, completeRun, updateRun, computeEntryStatus } from "../../stores/execution";
   import { executionApi, planApi } from "../../lib/api";
-  import { findNode, generateId, computeStepOutputs, outputsOf, parseNum } from "../../lib/plan-utils";
+  import { findNode, generateId, computeStepOutputs, outputsOf, parseNum, orderedInputDefs, visibleInputDefs, isInputHidden, inputSizeFor, inputSizeClass } from "../../lib/plan-utils";
   import { positionMenu } from "../../lib/flip-menu";
   import { createValue, createBindingValue, PlainValue, getValueType, type Value } from "../../lib/values";
   import { defUnit } from "../../lib/fieldtypes";
@@ -169,6 +169,16 @@
     return computeStepOutputs(plan.transforms ?? [], plan.definitions, stepValues);
   });
 
+  // Input definitions to show, in global layout order: bound non-derived inputs
+  // plus derived inputs that computed for this step. Hidden inputs are omitted.
+  const displayInputDefs = $derived.by(() => {
+    if (!plan) return [] as PlanFieldDef[];
+    const bound = new Set((displayStep?.input_conditions ?? []).map((b) => b.definition_id));
+    return orderedInputDefs(plan.definitions.input_conditions, plan.input_layout)
+      .filter((d) => !isInputHidden(d.id, plan.input_layout))
+      .filter((d) => (d.derived === true ? outputs.byDef[d.id] !== undefined : bound.has(d.id)));
+  });
+
   // --- Context menu ---
   function ctxMenu(e: MouseEvent, stepId: string) {
     e.preventDefault();
@@ -277,10 +287,12 @@
   async function handleCompleteRun(runId: string) {
     if (!doc || !selEntry) return;
 
-    const input_readings: Array<{ definition_id: string; definition_name: string; value: unknown }> = (displayStep?.input_conditions || []).map((b: FieldBinding) => {
-      const v = stepValues[b.definition_id];
-      return { definition_id: b.definition_id, definition_name: defName(b.definition_id), value: v ? v.scalar("value") : null };
-    });
+    const input_readings: Array<{ definition_id: string; definition_name: string; value: unknown }> = displayInputDefs
+      .filter((d) => d.derived !== true)
+      .map((d) => {
+        const v = stepValues[d.id];
+        return { definition_id: d.id, definition_name: defName(d.id), value: v ? v.scalar("value") : null };
+      });
 
     if (plan?.transforms?.length) {
       for (const t of plan.transforms) {
@@ -510,59 +522,59 @@
               {/if}
 
               <!-- Inputs -->
-              {#if displayStep.input_conditions.length > 0}
+              {#if displayInputDefs.length > 0}
                 <div class="mb-3">
                   <div class="binding-category">Input Conditions</div>
-                  <div class="field-blocks">
-                    {#each displayStep.input_conditions as b (b.definition_id)}
-                      {@const d = defField(b.definition_id)}
-                      {@const vt = b.valueTypeId ? getValueType(b.valueTypeId) : undefined}
-                      {@const isDerived = d?.derived === true}
-                      {@const value = stepValues[b.definition_id]}
-                      {@const out = isDerived ? outputs.byDef[b.definition_id] : undefined}
-                      {@const lp = liveInputParams[b.definition_id] ?? {}}
-                      <div class="field-block" class:derived={isDerived}>
+                  <div class="field-blocks input-fields">
+                    {#each displayInputDefs as d (d.id)}
+                      {@const b = displayStep.input_conditions.find((x) => x.definition_id === d.id)}
+                      {@const vt = b?.valueTypeId ? getValueType(b.valueTypeId) : undefined}
+                      {@const isDerived = d.derived === true}
+                      {@const value = stepValues[d.id]}
+                      {@const out = isDerived ? outputs.byDef[d.id] : undefined}
+                      {@const lp = liveInputParams[d.id] ?? {}}
+                      <div class="field-block {inputSizeClass(inputSizeFor(d.id, plan?.input_layout))}" class:derived={isDerived}>
                         <div class="field-block-label">
-                          {d?.name || b.definition_id.slice(0,8)}
+                          {d.name}
                           {#if vt}<span class="badge bg-info ms-1">{vt.displayName}</span>{/if}
                           {#if isDerived}<span class="badge bg-secondary ms-1">Computed</span>{/if}
                         </div>
                         {#if defUnit(d)}<small class="text-muted">{defUnit(d)}</small>{/if}
-                        {#if vt && value}<small class="text-muted d-block">{value.display()}</small>{/if}
+                        {#if run && vt && value}<small class="text-muted d-block">{value.display()}</small>{/if}
 
                         {#if isDerived}
                           <div class="field-block-value">{out?.display() ?? "—"}</div>
-                        {:else if run && b.valueTypeId && vt}
+                        {:else if run && b?.valueTypeId && vt}
                           {#if vt.paramsSchema.length > 0}
                             <div class="value-params-grid mt-1">
                               {#each vt.paramsSchema as p (p.key)}
                                 <div class="mb-1">
                                   <label class="small text-muted d-block" style="font-size:0.68rem">{p.label}</label>
                                   {#if p.type === "select" && p.options}
-                                    <select class="form-select form-select-sm" value={String(lp[p.key] ?? b.params?.[p.key] ?? p.default ?? "")} onchange={(e) => { const v = (e.target as HTMLSelectElement).value; liveInputParams = { ...liveInputParams, [b.definition_id]: { ...lp, [p.key]: v } }; }}>
+                                    <select class="form-select form-select-sm" value={String(lp[p.key] ?? b?.params?.[p.key] ?? p.default ?? "")} onchange={(e) => { const v = (e.target as HTMLSelectElement).value; liveInputParams = { ...liveInputParams, [d.id]: { ...lp, [p.key]: v } }; }}>
                                       {#each p.options as opt}<option value={opt}>{opt}</option>{/each}
                                     </select>
                                   {:else}
-                                    <input type="number" class="form-control form-control-sm" step="any" value={lp[p.key] ?? b.params?.[p.key] ?? p.default ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; liveInputParams = { ...liveInputParams, [b.definition_id]: { ...lp, [p.key]: v } }; }} />
+                                    <input type="number" class="form-control form-control-sm" step="any" value={lp[p.key] ?? b?.params?.[p.key] ?? p.default ?? ""} oninput={(e) => { const v = (e.target as HTMLInputElement).value; liveInputParams = { ...liveInputParams, [d.id]: { ...lp, [p.key]: v } }; }} />
                                   {/if}
                                 </div>
                               {/each}
                             </div>
                           {:else}
-                            <input type="text" class="form-control form-control-sm mt-1" placeholder="Value" value={String(b.value ?? "")} oninput={(e) => inputValues = { ...inputValues, [b.definition_id]: (e.target as HTMLInputElement).value }} />
+                            <input type="text" class="form-control form-control-sm mt-1" placeholder="Value" value={String(b?.value ?? "")} oninput={(e) => inputValues = { ...inputValues, [d.id]: (e.target as HTMLInputElement).value }} />
                           {/if}
-                        {:else if run && d?.typeId === "select" && (d.params.options as string[] | undefined)?.length}
-                          <select class="form-select form-select-sm mt-1" value={String(b.value ?? "")} onchange={(e) => { const v = (e.target as HTMLSelectElement).value; inputValues = { ...inputValues, [b.definition_id]: v }; }}>
+                        {:else if run && d.typeId === "select" && (d.params.options as string[] | undefined)?.length}
+                          <select class="form-select form-select-sm mt-1" value={String(b?.value ?? "")} onchange={(e) => { const v = (e.target as HTMLSelectElement).value; inputValues = { ...inputValues, [d.id]: v }; }}>
                             <option value="">--</option>
                             {#each (d.params.options as string[]) as opt}<option value={opt}>{opt}</option>{/each}
                           </select>
                         {:else if run}
                           <input
-                            type={d?.typeId === "number" ? "number" : "text"}
+                            type={d.typeId === "number" ? "number" : "text"}
                             class="form-control form-control-sm mt-1"
                             placeholder="Value"
                             value={String(value?.scalar("value") ?? "")}
-                            oninput={(e) => inputValues = { ...inputValues, [b.definition_id]: (e.target as HTMLInputElement).value }}
+                            oninput={(e) => inputValues = { ...inputValues, [d.id]: (e.target as HTMLInputElement).value }}
                           />
                         {:else}
                           <div class="field-block-value">{value?.display() ?? "—"}</div>
@@ -724,7 +736,7 @@
           {#if plan.definitions.input_conditions.length > 0}
             <div class="mb-3">
               <div class="binding-category mb-1">Input Conditions</div>
-              {#each plan.definitions.input_conditions as f (f.id)}
+              {#each visibleInputDefs(plan.definitions.input_conditions, plan.input_layout) as f (f.id)}
                 <div class="adhoc-field">
                   <label class="adhoc-check">
                     <input type="checkbox" checked={adhocInputs.includes(f.id)} onchange={(e) => {
@@ -842,6 +854,11 @@
   .elapsed-timer { font-size: 1.3rem; font-variant-numeric: tabular-nums; color: #0f5132; }
   .binding-category { font-size: 0.72rem; font-weight: 600; color: #666; text-transform: uppercase; margin-bottom: 6px; padding-bottom: 2px; border-bottom: 1px solid #eee; }
   .field-blocks { display: flex; flex-wrap: wrap; gap: 6px; }
+  .field-blocks.input-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: start; }
+  .field-blocks.input-fields .field-block { min-width: 0; }
+  .field-block.size-sm { grid-column: span 1; }
+  .field-block.size-md { grid-column: span 2; }
+  .field-block.size-lg { grid-column: span 4; }
   .value-params-grid { display: flex; flex-wrap: wrap; gap: 4px 10px; }
   .field-block { padding: 8px 10px; background: #fff; border: 1px solid #dee2e6; border-radius: 6px; min-width: 100px; flex: 1; }
   .field-block.measurement { border-left: 3px solid #0d6efd; }

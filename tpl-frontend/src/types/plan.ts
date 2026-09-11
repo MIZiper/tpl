@@ -1,6 +1,17 @@
 // Persisted (JSON) shapes. Behavior lives in code classes; the document only
 // stores instance data that references registered classes by id.
 
+export type InputSize = "sm" | "md" | "lg";
+
+// Global display layout for input_conditions: array order = display order,
+// size = block width on the log page (sm=25%, md=50%, lg=100%),
+// hidden = omit from the log page (kept last in the layout editor).
+export interface InputLayoutItem {
+  definition_id: string;
+  size?: InputSize;
+  hidden?: boolean;
+}
+
 export interface PlanFieldDef {
   id: string;
   typeId: string;                 // field type id: number | text | select | bool | struct
@@ -71,4 +82,5 @@ export interface PlanDocument {
   root: PlanNode[];
   templates: PlanTemplate[];
   transforms: TransformDef[];
+  input_layout?: InputLayoutItem[];
 }

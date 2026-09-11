@@ -1,18 +1,26 @@
 <script lang="ts">
-  import type { PlanNode, PlanDefinitions, PlanFieldDef, FieldBinding } from "../../types/plan";
+  import type { PlanNode, PlanDefinitions, PlanFieldDef, FieldBinding, InputLayoutItem } from "../../types/plan";
   import { getValueTypes, getValueType, createBindingValue } from "../../lib/values";
   import { getFieldType, defUnit } from "../../lib/fieldtypes";
-  import { parseNum, parseNumInt } from "../../lib/plan-utils";
+  import { parseNum, parseNumInt, orderedInputDefs } from "../../lib/plan-utils";
 
   let {
     node,
     definitions = null,
+    inputLayout = [],
     onupdate = (_patch: Partial<PlanNode>) => {},
   }: {
     node: PlanNode;
     definitions: PlanDefinitions | null;
+    inputLayout?: InputLayoutItem[];
     onupdate: (patch: Partial<PlanNode>) => void;
   } = $props();
+
+  function defsForCategory(cat: keyof PlanDefinitions): PlanFieldDef[] {
+    if (!definitions) return [];
+    if (cat === "input_conditions") return orderedInputDefs(definitions.input_conditions, inputLayout);
+    return definitions[cat];
+  }
 
   function defField(fieldId: string): PlanFieldDef | null {
     if (!definitions) return null;
@@ -172,7 +180,7 @@
           {#if definitions[cat].length > 0 || orphaned.length > 0}
             <div class="mb-3">
               <div class="binding-category">{categoryLabel(cat)}</div>
-              {#each definitions[cat].filter((f) => !isDerivedDef(f.id)) as f (f.id)}
+              {#each defsForCategory(cat).filter((f) => !isDerivedDef(f.id)) as f (f.id)}
                 {@const binding = node[cat].find(b => b.definition_id === f.id)}
                 {#if binding}
                   {@const vt = binding.valueTypeId ? getValueType(binding.valueTypeId) : undefined}
@@ -259,9 +267,9 @@
                   </div>
                 {/if}
               {/each}
-              {#if definitions[cat].some(f => !isDerivedDef(f.id) && f.typeId !== "struct" && !node[cat].find(b => b.definition_id === f.id))}
+              {#if defsForCategory(cat).some(f => !isDerivedDef(f.id) && f.typeId !== "struct" && !node[cat].find(b => b.definition_id === f.id))}
                 <div class="add-binding-area">
-                  {#each definitions[cat] as f (f.id)}
+                  {#each defsForCategory(cat) as f (f.id)}
                     {#if !isDerivedDef(f.id) && f.typeId !== "struct" && !node[cat].find(b => b.definition_id === f.id)}
                       <button class="add-binding-btn" onclick={() => addBinding(cat, f.id)}>+ {f.name}{#if defUnit(f)}<small class="text-muted"> ({defUnit(f)})</small>{/if}</button>
                     {/if}

@@ -6,6 +6,8 @@ import type {
   FieldBinding,
   TransformDef,
   TransformOutputBinding,
+  InputLayoutItem,
+  InputSize,
 } from "../types/plan";
 import { createStructValue, createBindingValue, type Value } from "./values";
 import { getTransform } from "./transforms";
@@ -30,6 +32,7 @@ export function createDefaultDocument(): PlanDocument {
     root: [],
     templates: [],
     transforms: [],
+    input_layout: [],
   };
 }
 
@@ -242,6 +245,97 @@ export function updateDefinition(
     ...defs,
     [category]: defs[category].map((f: PlanFieldDef) => (f.id === field.id ? { ...f, ...field } : f)),
   };
+}
+
+// Effective order of input definitions: explicit layout order first, then the
+// remaining definitions in their declaration order. Stale ids are dropped.
+export function orderedInputDefs(defs: PlanFieldDef[], layout: InputLayoutItem[] = []): PlanFieldDef[] {
+  const byId = new Map(defs.map((d) => [d.id, d]));
+  const seen = new Set<string>();
+  const result: PlanFieldDef[] = [];
+  for (const item of layout) {
+    const d = byId.get(item.definition_id);
+    if (d && !seen.has(d.id)) { seen.add(d.id); result.push(d); }
+  }
+  for (const d of defs) if (!seen.has(d.id)) result.push(d);
+  return result;
+}
+
+// Expand a layout so it covers every current definition, preserving existing
+// order, sizes and hidden flags. Needed before swapping/resizing/moving.
+export function normalizeInputLayout(defs: PlanFieldDef[], layout: InputLayoutItem[] = []): InputLayoutItem[] {
+  const byId = new Map(layout.map((l) => [l.definition_id, l]));
+  const items = orderedInputDefs(defs, layout).map((d) => {
+    const prev = byId.get(d.id);
+    const item: InputLayoutItem = { definition_id: d.id };
+    if (prev?.size) item.size = prev.size;
+    if (prev?.hidden) item.hidden = true;
+    return item;
+  });
+  return partitionHidden(items);
+}
+
+// Stable-partition a layout: visible items first (in order), hidden items last.
+function partitionHidden(layout: InputLayoutItem[]): InputLayoutItem[] {
+  return [...layout.filter((l) => !l.hidden), ...layout.filter((l) => l.hidden)];
+}
+
+export function isInputHidden(defId: string, layout: InputLayoutItem[] = []): boolean {
+  return layout.some((l) => l.definition_id === defId && l.hidden === true);
+}
+
+// Effective, visible (non-hidden) input definitions in layout order.
+export function visibleInputDefs(defs: PlanFieldDef[], layout: InputLayoutItem[] = []): PlanFieldDef[] {
+  return orderedInputDefs(defs, layout).filter((d) => !isInputHidden(d.id, layout));
+}
+
+// Move a definition to an arbitrary index (drag-and-drop reordering).
+// Hidden items are always kept last.
+export function reorderInputLayout(
+  defs: PlanFieldDef[],
+  layout: InputLayoutItem[],
+  fromId: string,
+  toIndex: number
+): InputLayoutItem[] {
+  const full = normalizeInputLayout(defs, layout);
+  const from = full.findIndex((l) => l.definition_id === fromId);
+  if (from < 0) return layout;
+  const [item] = full.splice(from, 1);
+  const clamped = Math.max(0, Math.min(toIndex, full.length));
+  full.splice(clamped, 0, item);
+  return partitionHidden(full);
+}
+
+export function setInputLayoutSize(
+  defs: PlanFieldDef[],
+  layout: InputLayoutItem[],
+  defId: string,
+  size: InputSize
+): InputLayoutItem[] {
+  return normalizeInputLayout(defs, layout).map((l) =>
+    l.definition_id === defId ? { ...l, size } : l
+  );
+}
+
+export function setInputLayoutHidden(
+  defs: PlanFieldDef[],
+  layout: InputLayoutItem[],
+  defId: string,
+  hidden: boolean
+): InputLayoutItem[] {
+  const items = normalizeInputLayout(defs, layout).map((l) =>
+    l.definition_id === defId ? { ...l, hidden } : l
+  );
+  return partitionHidden(items);
+}
+
+export function inputSizeFor(defId: string, layout: InputLayoutItem[] = []): InputSize {
+  return layout.find((l) => l.definition_id === defId)?.size ?? "md";
+}
+
+// Map a configured size to its grid CSS class (defaults to medium).
+export function inputSizeClass(size?: string): string {
+  return size === "sm" || size === "md" || size === "lg" ? `size-${size}` : "size-md";
 }
 
 export function flattenAllSteps(root: PlanNode[]): PlanNode[] {
