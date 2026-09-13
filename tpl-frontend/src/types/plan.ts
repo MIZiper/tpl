@@ -1,0 +1,86 @@
+// Persisted (JSON) shapes. Behavior lives in code classes; the document only
+// stores instance data that references registered classes by id.
+
+export type InputSize = "sm" | "md" | "lg";
+
+// Global display layout for input_conditions: array order = display order,
+// size = block width on the log page (sm=25%, md=50%, lg=100%),
+// hidden = omit from the log page (kept last in the layout editor).
+export interface InputLayoutItem {
+  definition_id: string;
+  size?: InputSize;
+  hidden?: boolean;
+}
+
+export interface PlanFieldDef {
+  id: string;
+  typeId: string;                 // field type id: number | text | select | bool | struct
+  name: string;
+  params: Record<string, unknown>; // number: {unit}; select: {options}; bool: {criteria}; struct: {structTypeId, ...fields}
+  derived?: boolean;
+}
+
+export interface PlanDefinitions {
+  input_conditions: PlanFieldDef[];
+  collection_items: PlanFieldDef[];
+  completion_criteria: PlanFieldDef[];
+  custom: PlanFieldDef[];
+}
+
+export interface FieldBinding {
+  definition_id: string;
+  value?: unknown;                // plain scalar
+  valueTypeId?: string;           // plain | ramp | tolerance | percentage | sinusoidal
+  params?: Record<string, unknown>;
+}
+
+export interface PlanNode {
+  id: string;
+  type: "group" | "step";
+  title: string;
+  children: PlanNode[];
+  description: string | null;
+  duration_minutes: number;
+  changeover_minutes: number;
+  input_conditions: FieldBinding[];
+  collection_items: FieldBinding[];
+  completion_criteria: FieldBinding[];
+  required_executions: number;
+  step_template_id: string | null;
+  solution_step_id: string | null;
+}
+
+export interface PlanTemplate {
+  id: string;
+  name: string;
+  step: PlanNode;
+}
+
+export interface TransformInputBinding {
+  role: string;
+  definitionId: string;
+}
+
+export interface TransformOutputBinding {
+  role: string;                   // output port role declared by the transform class
+  definitionId: string;           // definition id holding this output field; name/unit read from that def
+}
+
+export interface TransformDef {
+  id: string;
+  name: string;
+  typeId: string;                 // transform class id, e.g. "linear" | "gearbox.trans"
+  inputs: TransformInputBinding[];
+  outputs?: TransformOutputBinding[]; // one entry per output port; name/unit are read from each def
+  derivedDefId?: string;          // legacy single-output definition id (resolved via outputsOf)
+  params: Record<string, unknown>;
+}
+
+export interface PlanDocument {
+  version: number;
+  definitions: PlanDefinitions;
+  root: PlanNode[];
+  templates: PlanTemplate[];
+  transforms: TransformDef[];
+  input_layout?: InputLayoutItem[];
+}

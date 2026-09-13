@@ -1,0 +1,156 @@
+CREATE TABLE
+    risk_category (
+        category_id SERIAL PRIMARY KEY,
+        category_name VARCHAR(100) NOT NULL UNIQUE,
+        description TEXT
+    );
+
+CREATE TABLE
+    risk_type (
+        risk_id SERIAL PRIMARY KEY,
+        category_id INTEGER NOT NULL,
+        risk_code VARCHAR(50) UNIQUE,
+        risk_title VARCHAR(255) NOT NULL,
+        risk_description TEXT,
+        default_severity INTEGER,
+        default_occurrence INTEGER,
+        default_detection INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT fk_risk_category FOREIGN KEY (category_id) REFERENCES risk_category (category_id)
+    );
+
+CREATE TABLE
+    risk_cause (
+        cause_id SERIAL PRIMARY KEY,
+        risk_id INTEGER NOT NULL,
+        cause_description TEXT NOT NULL,
+        CONSTRAINT fk_cause_risk FOREIGN KEY (risk_id) REFERENCES risk_type (risk_id) ON DELETE CASCADE
+    );
+
+CREATE TABLE
+    solution (
+        solution_id SERIAL PRIMARY KEY,
+        solution_code VARCHAR(50) UNIQUE,
+        solution_title VARCHAR(255) NOT NULL,
+        description TEXT,
+        cost_impact VARCHAR(50),
+        weight_impact VARCHAR(50),
+        complexity_level INTEGER,
+        verified BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+CREATE TABLE
+    risk_solution (
+        mapping_id SERIAL PRIMARY KEY,
+        risk_id INTEGER NOT NULL,
+        solution_id INTEGER NOT NULL,
+        recommendation_level INTEGER,
+        CONSTRAINT fk_rs_risk FOREIGN KEY (risk_id) REFERENCES risk_type (risk_id) ON DELETE CASCADE,
+        CONSTRAINT fk_rs_solution FOREIGN KEY (solution_id) REFERENCES solution (solution_id) ON DELETE CASCADE,
+        CONSTRAINT uq_risk_solution UNIQUE (risk_id, solution_id)
+    );
+
+CREATE TABLE
+    project (
+        project_id SERIAL PRIMARY KEY,
+        project_code VARCHAR(50) UNIQUE,
+        project_name VARCHAR(255) NOT NULL,
+        customer_name VARCHAR(255),
+        platform VARCHAR(100),
+        start_date DATE,
+        end_date DATE,
+        project_manager VARCHAR(255),
+        status VARCHAR(50)
+    );
+
+CREATE TABLE
+    product_model (
+        model_id SERIAL PRIMARY KEY,
+        project_id INTEGER NOT NULL,
+        model_code VARCHAR(100),
+        model_name VARCHAR(255),
+        revision VARCHAR(50),
+        product_family VARCHAR(100),
+        CONSTRAINT fk_model_project FOREIGN KEY (project_id) REFERENCES project (project_id)
+    );
+
+CREATE TABLE
+    design_phase (
+        phase_id SERIAL PRIMARY KEY,
+        phase_name VARCHAR(100) UNIQUE NOT NULL,
+        sequence_no INTEGER
+    );
+
+CREATE TABLE
+    project_risk (
+        project_risk_id SERIAL PRIMARY KEY,
+        project_id INTEGER NOT NULL,
+        model_id INTEGER,
+        risk_id INTEGER NOT NULL,
+        phase_id INTEGER,
+        discovery_date DATE,
+        status VARCHAR(50),
+        owner_name VARCHAR(255),
+        severity INTEGER,
+        occurrence INTEGER,
+        detection INTEGER,
+        rpn INTEGER GENERATED ALWAYS AS (severity * occurrence * detection) STORED,
+        description TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (project_id) REFERENCES project (project_id),
+        FOREIGN KEY (model_id) REFERENCES product_model (model_id),
+        FOREIGN KEY (risk_id) REFERENCES risk_type (risk_id),
+        FOREIGN KEY (phase_id) REFERENCES design_phase (phase_id)
+    );
+
+CREATE TABLE
+    applied_solution (
+        applied_id SERIAL PRIMARY KEY,
+        project_risk_id INTEGER NOT NULL,
+        solution_id INTEGER NOT NULL,
+        implementation_date DATE,
+        responsible_engineer VARCHAR(255),
+        status VARCHAR(50),
+        FOREIGN KEY (project_risk_id) REFERENCES project_risk (project_risk_id) ON DELETE CASCADE,
+        FOREIGN KEY (solution_id) REFERENCES solution (solution_id)
+    );
+
+CREATE TABLE
+    solution_effectiveness (
+        effect_id SERIAL PRIMARY KEY,
+        applied_id INTEGER NOT NULL,
+        result_summary TEXT,
+        risk_reduction_percent NUMERIC(5, 2),
+        actual_cost NUMERIC(18, 2),
+        comments TEXT,
+        FOREIGN KEY (applied_id) REFERENCES applied_solution (applied_id) ON DELETE CASCADE
+    );
+
+CREATE TABLE
+    lessons_learned (
+        lesson_id SERIAL PRIMARY KEY,
+        project_risk_id INTEGER NOT NULL,
+        what_happened TEXT,
+        root_cause TEXT,
+        what_worked TEXT,
+        what_failed TEXT,
+        recommendation TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (project_risk_id) REFERENCES project_risk (project_risk_id) ON DELETE CASCADE
+    );
+
+CREATE TABLE
+    risk_tag (
+        tag_id SERIAL PRIMARY KEY,
+        tag_name VARCHAR(100) UNIQUE NOT NULL
+    );
+
+CREATE TABLE
+    risk_tag_mapping (
+        risk_id INTEGER NOT NULL,
+        tag_id INTEGER NOT NULL,
+        PRIMARY KEY (risk_id, tag_id),
+        FOREIGN KEY (risk_id) REFERENCES risk_type (risk_id) ON DELETE CASCADE,
+        FOREIGN KEY (tag_id) REFERENCES risk_tag (tag_id) ON DELETE CASCADE
+    );
