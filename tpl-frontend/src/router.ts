@@ -5,6 +5,7 @@ import DocumentList from "./pages/documents/DocumentList.svelte";
 import DocumentForm from "./pages/documents/DocumentForm.svelte";
 import PlanEditor from "./pages/plan/PlanEditor.svelte";
 import LoggingMain from "./pages/logging/LoggingMain.svelte";
+import GanttMain from "./pages/gantt/GanttMain.svelte";
 
 export const { p, navigate, isActive, route } = createRouter({
   layout: Layout,
@@ -16,6 +17,7 @@ export const { p, navigate, isActive, route } = createRouter({
       "/": DocumentForm,
       "/plan": PlanEditor,
       "/logging": LoggingMain,
+      "/gantt": GanttMain,
     },
   },
 });

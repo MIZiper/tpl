@@ -354,6 +354,11 @@
       disabled={!$planState.document || $planState.document.definitions.input_conditions.length === 0}
       title="Edit the global Input order and width with a live preview"
     >Input layout</button>
+    <a
+      href={p("/documents/:id/gantt", { params: { id } })}
+      class="btn btn-sm btn-outline-info ms-1"
+      title="Estimated timeline"
+    >Gantt</a>
     <span class="flex-grow-1"></span>
     {#if $planState.dirty}
       <button class="btn btn-sm btn-success" onclick={() => saveDoc(id, planApi.saveDocument)}>Save *</button>

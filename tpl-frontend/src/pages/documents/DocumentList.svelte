@@ -52,6 +52,12 @@
                   Log
                 </a>
                 <a
+                  href={p("/documents/:id/gantt", { params: { id: document.id } })}
+                  class="btn btn-sm btn-outline-info"
+                >
+                  Gantt
+                </a>
+                <a
                   href={p("/documents/:id", { params: { id: document.id } })}
                   class="btn btn-sm btn-outline-primary"
                 >

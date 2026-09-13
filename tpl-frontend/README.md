@@ -18,13 +18,16 @@ pnpm check      # svelte-check + tsc
 
 ```
 tpl-frontend/src/
-├── router.ts                 # /documents, /documents/:id/plan, /documents/:id/logging
-├── components/Layout.svelte  # navbar
+├── router.ts                 # /documents, /documents/:id/{plan,logging,gantt}
+├── components/
+│   ├── Layout.svelte         # navbar
+│   └── GanttChart.svelte     # timeline renderer (plan / actual)
 ├── pages/
 │   ├── Home.svelte
 │   ├── documents/            # DocumentList / DocumentForm (lightweight project entity)
 │   ├── plan/                 # PlanEditor / PlanCanvas / PlanStepEditor
-│   └── logging/              # LoggingMain / LogStepTree
+│   ├── logging/              # LoggingMain / LogStepTree
+│   └── gantt/                # GanttMain (Plan + Actual tabs)
 ├── stores/
 │   ├── documents.ts          # document list CRUD
 │   ├── plan.ts               # PlanDocument store (tree manipulation)
@@ -32,6 +35,7 @@ tpl-frontend/src/
 ├── lib/
 │   ├── api/                  # documentsApi / planApi / executionApi
 │   ├── plan-utils.ts         # tree utils, transform graph evaluation
+│   ├── gantt.ts              # plan/actual schedule + time-axis helpers
 │   ├── params.ts             # shared ParamSpec (number/text/textlist/select)
 │   ├── fieldtypes.ts         # definition kinds (+ paramsSchema, describe, defUnit)
 │   ├── values.ts             # binding value classes (characteristic set, describe/display)
@@ -53,6 +57,7 @@ tpl-frontend/src/
 | `/documents/:id` | DocumentForm (edit) |
 | `/documents/:id/plan` | PlanEditor |
 | `/documents/:id/logging` | LoggingMain |
+| `/documents/:id/gantt` | GanttMain (Plan / Actual timelines) |
 
 ## Offline
 

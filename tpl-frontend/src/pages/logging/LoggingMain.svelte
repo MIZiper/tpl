@@ -474,6 +474,7 @@
 <div class="log-editor">
   <div class="log-toolbar">
     <a href={p("/documents/:id", { params: { id } })} class="btn btn-sm btn-outline-secondary">Back</a>
+    <a href={p("/documents/:id/gantt", { params: { id } })} class="btn btn-sm btn-outline-info ms-1">Gantt</a>
     <span class="flex-grow-1"></span>
     {#if !doc?.entries?.length}
       <button class="btn btn-sm btn-primary" onclick={handleInit}>Initialize</button>
