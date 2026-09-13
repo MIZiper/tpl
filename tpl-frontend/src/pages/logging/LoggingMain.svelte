@@ -3,7 +3,7 @@
   import { p, route } from "../../router";
   import { execState, load, init, saveDoc, startRun, completeRun, updateRun, computeEntryStatus } from "../../stores/execution";
   import { executionApi, planApi } from "../../lib/api";
-  import { findNode, generateId, computeStepOutputs, outputsOf, parseNum, orderedInputDefs, visibleInputDefs, isInputHidden, inputSizeFor, inputSizeClass } from "../../lib/plan-utils";
+  import { findNode, generateId, computeStepOutputs, outputsOf, parseNum, orderedInputDefs, visibleInputDefs, isInputHidden, inputSizeFor, inputSizeClass, type StepOutputs } from "../../lib/plan-utils";
   import { positionMenu } from "../../lib/flip-menu";
   import { createValue, createBindingValue, PlainValue, getValueType, type Value } from "../../lib/values";
   import { defUnit } from "../../lib/fieldtypes";
@@ -23,7 +23,7 @@
   let adhocMeasurements = $state<string[]>([]);
   let adhocCriteria = $state<string[]>([]);
   let adhocInputValues = $state<Record<string, string>>({});
-  let conflictModal = $state<{ stepId: string; activeEntry: ExecutionEntry | null } | null>(null);
+  let conflictModal = $state<{ stepId?: string; entryId?: string; activeEntry: ExecutionEntry | null } | null>(null);
   let tick = $state(0);
 
   // Interactive state for active run
@@ -96,17 +96,22 @@
   const selStep = $derived(selEntry?.plan_step_id && plan ? findNode(plan.root, selEntry.plan_step_id) : null);
   const pureStep = $derived(selectedStepId && plan ? findNode(plan.root, selectedStepId) : null);
 
-  const adhocBindings = $derived((selEntry?.type === "adhoc" && plan && selEntry.selected_bindings) ? {
-    input_conditions: (selEntry.selected_bindings.input_conditions || []).map(id =>
-      plan.definitions.input_conditions.find(d => d.id === id) || { id, typeId: "text", name: "", params: {} }
-    ).map(d => ({ definition_id: d.id, value: null })),
-    collection_items: (selEntry.selected_bindings.collection_items || []).map(id =>
-      plan.definitions.collection_items.find(d => d.id === id) || { id, typeId: "text", name: "", params: {} }
-    ).map(d => ({ definition_id: d.id, value: null })),
-    completion_criteria: (selEntry.selected_bindings.completion_criteria || []).map(id =>
-      plan.definitions.completion_criteria.find(d => d.id === id) || { id, typeId: "text", name: "", params: {} }
-    ).map(d => ({ definition_id: d.id, value: null })),
-  } : null);
+  function adhocBindingsFor(entry: ExecutionEntry | undefined) {
+    if (!(entry?.type === "adhoc" && plan && entry.selected_bindings)) return null;
+    return {
+      input_conditions: (entry.selected_bindings.input_conditions || []).map(id =>
+        plan.definitions.input_conditions.find(d => d.id === id) || { id, typeId: "text", name: "", params: {} }
+      ).map(d => ({ definition_id: d.id, value: null })),
+      collection_items: (entry.selected_bindings.collection_items || []).map(id =>
+        plan.definitions.collection_items.find(d => d.id === id) || { id, typeId: "text", name: "", params: {} }
+      ).map(d => ({ definition_id: d.id, value: null })),
+      completion_criteria: (entry.selected_bindings.completion_criteria || []).map(id =>
+        plan.definitions.completion_criteria.find(d => d.id === id) || { id, typeId: "text", name: "", params: {} }
+      ).map(d => ({ definition_id: d.id, value: null })),
+    };
+  }
+
+  const adhocBindings = $derived(adhocBindingsFor(selEntry));
 
   const displayStep = $derived(selStep || pureStep || (adhocBindings ? {
     type: "step" as const,
@@ -118,6 +123,22 @@
     required_executions: 1,
   } as PlanNode : null));
 
+  // Build the step node for any entry (planned → plan tree, ad-hoc → bindings).
+  function stepForEntry(entry: ExecutionEntry): PlanNode | null {
+    if (entry.plan_step_id && plan) return findNode(plan.root, entry.plan_step_id);
+    const ab = adhocBindingsFor(entry);
+    if (!ab) return null;
+    return {
+      type: "step" as const,
+      title: entry.step_title || "",
+      description: null as string | null,
+      duration_minutes: 0,
+      changeover_minutes: 0,
+      ...ab,
+      required_executions: entry.required_executions || 1,
+    } as PlanNode;
+  }
+
   function defField(fieldId: string): PlanFieldDef | null {
     const defs = plan?.definitions;
     if (!defs) return null;
@@ -128,11 +149,11 @@
     return null;
   }
 
-  // Effective bound Values for the displayed step (live edits merged in).
-  const stepValues = $derived.by(() => {
+  // Effective bound Values for a step (live edits merged in).
+  function buildStepValues(step: PlanNode, entry: ExecutionEntry | undefined): Record<string, Value> {
     const map: Record<string, Value> = {};
-    if (!plan || !displayStep) return map;
-    for (const b of displayStep.input_conditions) {
+    if (!plan) return map;
+    for (const b of step.input_conditions) {
       const def = defField(b.definition_id);
       if (def?.derived === true) continue;
       if (def?.typeId === "struct") {
@@ -146,13 +167,13 @@
         }
         map[b.definition_id] = createValue(b.valueTypeId, params, null);
       } else {
-        const raw = inputValues[b.definition_id] ?? b.value ?? (selEntry?.selected_bindings?.input_values as any)?.[b.definition_id];
+        const raw = inputValues[b.definition_id] ?? b.value ?? (entry?.selected_bindings?.input_values as any)?.[b.definition_id];
         let val: unknown = raw ?? null;
         if (def?.typeId === "number") val = val === "" || val == null ? null : parseNum(String(val));
         map[b.definition_id] = new PlainValue(val as number | string | null);
       }
     }
-    for (const b of displayStep.collection_items) {
+    for (const b of step.collection_items) {
       const def = defField(b.definition_id);
       const v = measValues[b.definition_id];
       if (v !== undefined && v !== "") {
@@ -162,22 +183,84 @@
       }
     }
     return map;
-  });
+  }
+
+  const stepValues = $derived(displayStep ? buildStepValues(displayStep, selEntry) : ({} as Record<string, Value>));
 
   const outputs = $derived.by(() => {
     if (!plan) return { byTransform: {} as Record<string, Record<string, Value>>, byDef: {} as Record<string, Value> };
     return computeStepOutputs(plan.transforms ?? [], plan.definitions, stepValues);
   });
 
-  // Input definitions to show, in global layout order: bound non-derived inputs
-  // plus derived inputs that computed for this step. Hidden inputs are omitted.
-  const displayInputDefs = $derived.by(() => {
-    if (!plan) return [] as PlanFieldDef[];
-    const bound = new Set((displayStep?.input_conditions ?? []).map((b) => b.definition_id));
+  // Input definitions for a step, in global layout order: bound non-derived
+  // inputs plus derived inputs that computed for this step. Hidden inputs omitted.
+  function inputDefsFor(step: PlanNode, outs: StepOutputs): PlanFieldDef[] {
+    if (!plan) return [];
+    const bound = new Set(step.input_conditions.map((b) => b.definition_id));
     return orderedInputDefs(plan.definitions.input_conditions, plan.input_layout)
       .filter((d) => !isInputHidden(d.id, plan.input_layout))
-      .filter((d) => (d.derived === true ? outputs.byDef[d.id] !== undefined : bound.has(d.id)));
-  });
+      .filter((d) => (d.derived === true ? outs.byDef[d.id] !== undefined : bound.has(d.id)));
+  }
+
+  const displayInputDefs = $derived(displayStep ? inputDefsFor(displayStep, outputs) : ([] as PlanFieldDef[]));
+
+  // Readable persisted reading: plain scalars keep their raw value, richer value
+  // types (ramp/tolerance/percentage/sinusoidal/struct/derived) persist display().
+  function readingValue(v: Value | undefined): unknown {
+    if (!v) return null;
+    if (v.typeId === "plain") return v.scalar("value");
+    const d = v.display();
+    return d === "—" ? null : d;
+  }
+
+  // Collect the entered readings/results for a step's active run. Works for any
+  // entry (not just the selected one) so switching steps can still save it.
+  function collectRunData(step: PlanNode, entry: ExecutionEntry) {
+    const values = buildStepValues(step, entry);
+    const outs: StepOutputs = plan
+      ? computeStepOutputs(plan.transforms ?? [], plan.definitions, values)
+      : { byTransform: {}, byDef: {} };
+    const inputDefs = inputDefsFor(step, outs);
+
+    const input_readings: Array<{ definition_id: string; definition_name: string; value: unknown }> = inputDefs
+      .filter((d) => d.derived !== true)
+      .map((d) => ({
+        definition_id: d.id,
+        definition_name: defName(d.id),
+        value: readingValue(values[d.id]),
+      }));
+
+    if (plan?.transforms?.length) {
+      for (const t of plan.transforms) {
+        const row = outs.byTransform[t.id];
+        if (!row) continue;
+        for (const ob of outputsOf(t)) {
+          const out = row[ob.role];
+          if (!out) continue;
+          input_readings.push({
+            definition_id: ob.definitionId,
+            definition_name: defField(ob.definitionId)?.name || t.name,
+            value: readingValue(out),
+          });
+        }
+      }
+    }
+
+    const collection_results = (step.collection_items || []).map((b: FieldBinding) => ({
+      definition_id: b.definition_id,
+      definition_name: defName(b.definition_id),
+      result: (measFlags[b.definition_id] ?? measValues[b.definition_id] ?? String(b.value ?? null)) as string | null,
+      notes: null as string | null,
+    }));
+    const criteria_results = (step.completion_criteria || []).map((b: FieldBinding) => ({
+      definition_id: b.definition_id,
+      definition_name: defName(b.definition_id),
+      passed: critFlags[b.definition_id] ?? (b.value === true ? true : (b.value === false ? false : null)),
+      notes: null as string | null,
+    }));
+
+    return { input_readings, collection_results, criteria_results };
+  }
 
   // --- Context menu ---
   function ctxMenu(e: MouseEvent, stepId: string) {
@@ -193,14 +276,30 @@
     return doc.entries.find(e => e.executions.some(r => r.status === "in_progress")) || null;
   }
 
-  async function handleStart(stepId: string) {
+  // Start a planned step or an existing entry (e.g. ad-hoc), guarding against
+  // clobbering another step's active run.
+  function beginStart(target: { stepId?: string; entryId?: string }) {
     if (!doc) return;
     const active = findActive();
     if (active) {
-      conflictModal = { stepId, activeEntry: active };
+      conflictModal = { ...target, activeEntry: active };
       return;
     }
-    doStartByStepId(stepId);
+    resolveStart(target);
+  }
+
+  async function resolveStart(target: { stepId?: string; entryId?: string }) {
+    if (target.entryId) await doStart(target.entryId);
+    else if (target.stepId) await doStartByStepId(target.stepId);
+  }
+
+  function handleStart(stepId: string) {
+    beginStart({ stepId });
+  }
+
+  function handleStartEntry(entry: ExecutionEntry) {
+    if (entry.plan_step_id) beginStart({ stepId: entry.plan_step_id });
+    else beginStart({ entryId: entry.id });
   }
 
   async function doStart(entryId: string) {
@@ -208,6 +307,7 @@
     const entry = doc.entries.find(e => e.id === entryId);
     if (!entry) return;
 
+    resetRunState();
     const updated = startRun(entry);
     doc.entries = doc.entries.map(e => e.id === entry.id ? updated : e);
     dirty();
@@ -234,6 +334,7 @@
       doc.entries = [...doc.entries, entry];
     }
 
+    resetRunState();
     const updated = startRun(entry);
     doc.entries = doc.entries.map(e => e.id === entry!.id ? updated : e);
     dirty();
@@ -242,42 +343,41 @@
     await executionApi.saveDoc(id, doc);
   }
 
+  // Terminate a previous step's active run, preserving whatever was entered.
+  async function finishPrevious(prev: ExecutionEntry, status: "completed" | "skipped") {
+    if (!doc) return;
+    const activeRun = prev.executions.find(r => r.status === "in_progress");
+    if (!activeRun) return;
+    const step = stepForEntry(prev);
+    const data = step ? collectRunData(step, prev) : {};
+    const updated = updateRun(prev, activeRun.id, {
+      status,
+      completed_at: new Date().toISOString(),
+      ...data,
+    });
+    doc.entries = doc.entries.map(e => e.id === prev.id ? updated : e);
+    dirty();
+    await executionApi.saveDoc(id, doc);
+  }
+
   async function conflictStopPrevious() {
     if (!doc || !conflictModal) return;
     const prev = conflictModal.activeEntry;
-    if (prev) {
-      const activeRun = prev.executions.find(r => r.status === "in_progress");
-      if (activeRun) {
-        prev.executions = prev.executions.map(r => r.id === activeRun.id
-          ? { ...r, status: "completed", completed_at: new Date().toISOString() }
-          : r);
-        doc.entries = doc.entries.map(e => e.id === prev.id ? { ...prev } : e);
-        dirty();
-        await executionApi.saveDoc(id, doc);
-      }
-    }
-    const stepId = conflictModal.stepId;
+    if (prev) await finishPrevious(prev, "completed");
+    const target = { stepId: conflictModal.stepId, entryId: conflictModal.entryId };
     conflictModal = null;
-    await doStartByStepId(stepId);
+    resetRunState();
+    await resolveStart(target);
   }
 
   async function conflictSkipPrevious() {
     if (!doc || !conflictModal) return;
     const prev = conflictModal.activeEntry;
-    if (prev) {
-      const activeRun = prev.executions.find(r => r.status === "in_progress");
-      if (activeRun) {
-        prev.executions = prev.executions.map(r => r.id === activeRun.id
-          ? { ...r, status: "skipped", completed_at: new Date().toISOString() }
-          : r);
-        doc.entries = doc.entries.map(e => e.id === prev.id ? { ...prev } : e);
-        dirty();
-        await executionApi.saveDoc(id, doc);
-      }
-    }
-    const stepId = conflictModal.stepId;
+    if (prev) await finishPrevious(prev, "skipped");
+    const target = { stepId: conflictModal.stepId, entryId: conflictModal.entryId };
     conflictModal = null;
-    await doStartByStepId(stepId);
+    resetRunState();
+    await resolveStart(target);
   }
 
   function conflictCancel() {
@@ -285,41 +385,9 @@
   }
 
   async function handleCompleteRun(runId: string) {
-    if (!doc || !selEntry) return;
-
-    const input_readings: Array<{ definition_id: string; definition_name: string; value: unknown }> = displayInputDefs
-      .filter((d) => d.derived !== true)
-      .map((d) => {
-        const v = stepValues[d.id];
-        return { definition_id: d.id, definition_name: defName(d.id), value: v ? v.scalar("value") : null };
-      });
-
-    if (plan?.transforms?.length) {
-      for (const t of plan.transforms) {
-        const row = outputs.byTransform[t.id];
-        if (!row) continue;
-        for (const ob of outputsOf(t)) {
-          const out = row[ob.role];
-          if (!out) continue;
-          input_readings.push({ definition_id: ob.definitionId, definition_name: defField(ob.definitionId)?.name || t.name, value: out.scalar("value") });
-        }
-      }
-    }
-
-    const collection_results = (displayStep?.collection_items || []).map((b: FieldBinding) => ({
-      definition_id: b.definition_id,
-      definition_name: defName(b.definition_id),
-      result: measFlags[b.definition_id] ?? measValues[b.definition_id] ?? String(b.value ?? null),
-      notes: null as string | null,
-    }));
-    const criteria_results = (displayStep?.completion_criteria || []).map((b: FieldBinding) => ({
-      definition_id: b.definition_id,
-      definition_name: defName(b.definition_id),
-      passed: critFlags[b.definition_id] ?? (b.value === true ? true : (b.value === false ? false : null)),
-      notes: null as string | null,
-    }));
-
-    const updated = completeRun(selEntry, runId, { input_readings, collection_results, criteria_results });
+    if (!doc || !selEntry || !displayStep) return;
+    const data = collectRunData(displayStep, selEntry);
+    const updated = completeRun(selEntry, runId, data);
     doc.entries = doc.entries.map(e => e.id === selEntry.id ? updated : e);
     resetRunState();
     dirty();
@@ -327,9 +395,11 @@
   }
 
   async function handleSkipRun(runId: string) {
-    if (!doc || !selEntry) return;
-    const updated = updateRun(selEntry, runId, { status: "skipped", completed_at: new Date().toISOString() });
+    if (!doc || !selEntry || !displayStep) return;
+    const data = collectRunData(displayStep, selEntry);
+    const updated = updateRun(selEntry, runId, { status: "skipped", completed_at: new Date().toISOString(), ...data });
     doc.entries = doc.entries.map(e => e.id === selEntry.id ? updated : e);
+    resetRunState();
     dirty();
     await executionApi.saveDoc(id, doc);
   }
@@ -476,15 +546,15 @@
                       {#if selEntry.required_executions > 1}
                         <span class="badge bg-info">{selEntry.executions.filter(r => r.status === "completed").length}/{selEntry.required_executions}</span>
                       {/if}
-                      <button class="btn btn-sm btn-outline-success" onclick={() => selEntry.plan_step_id ? handleStart(selEntry.plan_step_id!) : doStart(selEntry.id)}>Run Again</button>
+                      <button class="btn btn-sm btn-outline-success" onclick={() => handleStartEntry(selEntry)}>Run Again</button>
                     {:else if computeEntryStatus(selEntry) === "partial"}
                       <span class="badge bg-info">{selEntry.executions.filter(r => r.status==="completed").length}/{selEntry.required_executions}</span>
-                      <button class="btn btn-sm btn-outline-success" onclick={() => selEntry.plan_step_id ? handleStart(selEntry.plan_step_id!) : doStart(selEntry.id)}>Run Again</button>
+                      <button class="btn btn-sm btn-outline-success" onclick={() => handleStartEntry(selEntry)}>Run Again</button>
                     {:else}
                       {#if selEntry.required_executions > 1}
                         <span class="badge bg-info">{selEntry.executions.filter(r => r.status === "completed").length}/{selEntry.required_executions}</span>
                       {/if}
-                      <button class="btn btn-sm btn-success" onclick={() => selEntry.plan_step_id ? handleStart(selEntry.plan_step_id!) : doStart(selEntry.id)}>Start</button>
+                      <button class="btn btn-sm btn-success" onclick={() => handleStartEntry(selEntry)}>Start</button>
                     {/if}
                     {:else}
                       {#if displayStep.required_executions > 1}
@@ -537,6 +607,7 @@
                         <div class="field-block-label">
                           {d.name}
                           {#if vt}<span class="badge bg-info ms-1">{vt.displayName}</span>{/if}
+                          {#if d.typeId === "struct"}<span class="badge bg-info ms-1">Struct</span>{/if}
                           {#if isDerived}<span class="badge bg-secondary ms-1">Computed</span>{/if}
                         </div>
                         {#if defUnit(d)}<small class="text-muted">{defUnit(d)}</small>{/if}
@@ -564,10 +635,16 @@
                             <input type="text" class="form-control form-control-sm mt-1" placeholder="Value" value={String(b?.value ?? "")} oninput={(e) => inputValues = { ...inputValues, [d.id]: (e.target as HTMLInputElement).value }} />
                           {/if}
                         {:else if run && d.typeId === "select" && (d.params.options as string[] | undefined)?.length}
-                          <select class="form-select form-select-sm mt-1" value={String(b?.value ?? "")} onchange={(e) => { const v = (e.target as HTMLSelectElement).value; inputValues = { ...inputValues, [d.id]: v }; }}>
+                          <select class="form-select form-select-sm mt-1" value={String(inputValues[d.id] ?? b?.value ?? "")} onchange={(e) => { const v = (e.target as HTMLSelectElement).value; inputValues = { ...inputValues, [d.id]: v }; }}>
                             <option value="">--</option>
                             {#each (d.params.options as string[]) as opt}<option value={opt}>{opt}</option>{/each}
                           </select>
+                        {:else if run && d.typeId === "struct"}
+                          <div class="field-block-value struct-fields">
+                            {#each value?.values() ?? [] as fv}
+                              <span class="run-mini-chip">{fv.name}: {fv.value ?? "—"}{fv.unit ? ` ${fv.unit}` : ""}</span>
+                            {/each}
+                          </div>
                         {:else if run}
                           <input
                             type={d.typeId === "number" ? "number" : "text"}
@@ -868,6 +945,7 @@
   .field-block.criteria.failed { background: #f8d7da; border-color: #dc3545; }
   .field-block-label { font-size: 0.75rem; font-weight: 600; }
   .field-block-value { font-size: 0.85rem; margin-top: 4px; }
+  .struct-fields { display: flex; flex-wrap: wrap; gap: 2px; }
   .run-record { padding: 6px 8px; background: #fff; border: 1px solid #eee; border-radius: 4px; margin-bottom: 3px; font-size: 0.8rem; }
   .run-mini-row { display: flex; gap: 12px; margin-top: 4px; }
   .run-mini-col { flex: 1; min-width: 0; }
