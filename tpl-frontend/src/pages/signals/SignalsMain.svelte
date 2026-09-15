@@ -10,6 +10,7 @@
   } from "../../lib/signals";
   import type { PlanDocument } from "../../types/plan";
   import SignalChart from "../../components/SignalChart.svelte";
+  import DocumentNav from "../../components/DocumentNav.svelte";
 
   let id: string = $derived(route.params.id ?? "");
   let plan = $state<PlanDocument | null>(null);
@@ -72,8 +73,7 @@
 <div class="signals-page">
   <div class="signals-toolbar">
     <a href={p("/documents/:id", { params: { id } })} class="btn btn-sm btn-outline-secondary">Back</a>
-    <a href={p("/documents/:id/gantt", { params: { id } })} class="btn btn-sm btn-outline-info ms-1">Gantt</a>
-    <a href={p("/documents/:id/plan", { params: { id } })} class="btn btn-sm btn-outline-primary ms-1">Plan</a>
+    <DocumentNav {id} current="signals" />
     <span class="signals-title ms-3">Input Signals</span>
     <span class="flex-grow-1"></span>
     {#if windows && windows.totalMs > 0}

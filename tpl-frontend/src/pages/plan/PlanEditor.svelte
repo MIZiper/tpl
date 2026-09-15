@@ -30,6 +30,7 @@
   import { getTransforms, getTransform, type PortSpec } from "../../lib/transforms";
   import { generateId, outputsOf, orderedInputDefs } from "../../lib/plan-utils";
   import { positionMenu } from "../../lib/flip-menu";
+  import DocumentNav from "../../components/DocumentNav.svelte";
   import type {
     PlanNode,
     PlanDocument,
@@ -348,22 +349,13 @@
 <div class="plan-editor">
   <div class="plan-toolbar">
     <a href={p("/documents/:id", { params: { id } })} class="btn btn-sm btn-outline-secondary">Back</a>
+    <DocumentNav {id} current="plan" />
     <button
-      class="btn btn-sm btn-outline-primary ms-1"
+      class="btn btn-sm btn-outline-primary"
       onclick={() => (showInputLayout = true)}
       disabled={!$planState.document || $planState.document.definitions.input_conditions.length === 0}
       title="Edit the global Input order and width with a live preview"
     >Input layout</button>
-    <a
-      href={p("/documents/:id/gantt", { params: { id } })}
-      class="btn btn-sm btn-outline-info ms-1"
-      title="Estimated timeline"
-    >Gantt</a>
-    <a
-      href={p("/documents/:id/signals", { params: { id } })}
-      class="btn btn-sm btn-outline-warning ms-1"
-      title="Input signals over step time"
-    >Signals</a>
     <span class="flex-grow-1"></span>
     {#if $planState.dirty}
       <button class="btn btn-sm btn-success" onclick={() => saveDoc(id, planApi.saveDocument)}>Save *</button>

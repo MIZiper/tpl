@@ -10,6 +10,7 @@
   import type { ExecutionEntry, ExecutionRun } from "../../types/execution";
   import type { PlanNode, PlanFieldDef, FieldBinding } from "../../types/plan";
   import LogStepTree from "./LogStepTree.svelte";
+  import DocumentNav from "../../components/DocumentNav.svelte";
 
   let id: string = $derived(route.params.id ?? "");
 
@@ -474,8 +475,7 @@
 <div class="log-editor">
   <div class="log-toolbar">
     <a href={p("/documents/:id", { params: { id } })} class="btn btn-sm btn-outline-secondary">Back</a>
-    <a href={p("/documents/:id/gantt", { params: { id } })} class="btn btn-sm btn-outline-info ms-1">Gantt</a>
-    <a href={p("/documents/:id/signals", { params: { id } })} class="btn btn-sm btn-outline-warning ms-1">Signals</a>
+    <DocumentNav {id} current="logging" />
     <span class="flex-grow-1"></span>
     {#if !doc?.entries?.length}
       <button class="btn btn-sm btn-primary" onclick={handleInit}>Initialize</button>

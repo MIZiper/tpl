@@ -21,6 +21,7 @@ tpl-frontend/src/
 ├── router.ts                 # /documents, /documents/:id/{plan,logging,gantt,signals}
 ├── components/
 │   ├── Layout.svelte         # navbar
+│   ├── DocumentNav.svelte    # cross-panel nav (Plan / Log / Gantt / Signals)
 │   ├── GanttChart.svelte     # timeline renderer (plan / actual)
 │   └── SignalChart.svelte    # per-channel input signal lanes over elapsed time
 ├── pages/
