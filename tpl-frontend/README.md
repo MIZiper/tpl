@@ -18,16 +18,18 @@ pnpm check      # svelte-check + tsc
 
 ```
 tpl-frontend/src/
-├── router.ts                 # /documents, /documents/:id/{plan,logging,gantt}
+├── router.ts                 # /documents, /documents/:id/{plan,logging,gantt,signals}
 ├── components/
 │   ├── Layout.svelte         # navbar
-│   └── GanttChart.svelte     # timeline renderer (plan / actual)
+│   ├── GanttChart.svelte     # timeline renderer (plan / actual)
+│   └── SignalChart.svelte    # per-channel input signal lanes over elapsed time
 ├── pages/
 │   ├── Home.svelte
 │   ├── documents/            # DocumentList / DocumentForm (lightweight project entity)
 │   ├── plan/                 # PlanEditor / PlanCanvas / PlanStepEditor
 │   ├── logging/              # LoggingMain / LogStepTree
-│   └── gantt/                # GanttMain (Plan + Actual tabs)
+│   ├── gantt/                # GanttMain (Plan + Actual tabs)
+│   └── signals/              # SignalsMain (input signals over step time)
 ├── stores/
 │   ├── documents.ts          # document list CRUD
 │   ├── plan.ts               # PlanDocument store (tree manipulation)
@@ -36,6 +38,7 @@ tpl-frontend/src/
 │   ├── api/                  # documentsApi / planApi / executionApi
 │   ├── plan-utils.ts         # tree utils, transform graph evaluation
 │   ├── gantt.ts              # plan/actual schedule + time-axis helpers
+│   ├── signals.ts            # step execution windows + value evaluation/lane building
 │   ├── params.ts             # shared ParamSpec (number/text/textlist/select)
 │   ├── fieldtypes.ts         # definition kinds (+ paramsSchema, describe, defUnit)
 │   ├── values.ts             # binding value classes (characteristic set, describe/display)
@@ -58,6 +61,7 @@ tpl-frontend/src/
 | `/documents/:id/plan` | PlanEditor |
 | `/documents/:id/logging` | LoggingMain |
 | `/documents/:id/gantt` | GanttMain (Plan / Actual timelines) |
+| `/documents/:id/signals` | SignalsMain (input signals over elapsed step time) |
 
 ## Offline
 

@@ -58,6 +58,12 @@
                   Gantt
                 </a>
                 <a
+                  href={p("/documents/:id/signals", { params: { id: document.id } })}
+                  class="btn btn-sm btn-outline-warning"
+                >
+                  Signals
+                </a>
+                <a
                   href={p("/documents/:id", { params: { id: document.id } })}
                   class="btn btn-sm btn-outline-primary"
                 >

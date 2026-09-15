@@ -6,6 +6,7 @@ import DocumentForm from "./pages/documents/DocumentForm.svelte";
 import PlanEditor from "./pages/plan/PlanEditor.svelte";
 import LoggingMain from "./pages/logging/LoggingMain.svelte";
 import GanttMain from "./pages/gantt/GanttMain.svelte";
+import SignalsMain from "./pages/signals/SignalsMain.svelte";
 
 export const { p, navigate, isActive, route } = createRouter({
   layout: Layout,
@@ -18,6 +19,7 @@ export const { p, navigate, isActive, route } = createRouter({
       "/plan": PlanEditor,
       "/logging": LoggingMain,
       "/gantt": GanttMain,
+      "/signals": SignalsMain,
     },
   },
 });

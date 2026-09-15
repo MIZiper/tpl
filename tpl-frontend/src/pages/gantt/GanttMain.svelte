@@ -88,6 +88,7 @@
 <div class="gantt-page">
   <div class="gantt-toolbar">
     <a href={p("/documents/:id", { params: { id } })} class="btn btn-sm btn-outline-secondary">Back</a>
+    <a href={p("/documents/:id/signals", { params: { id } })} class="btn btn-sm btn-outline-warning ms-1">Signals</a>
     <ul class="nav nav-pills nav-sm ms-2">
       <li class="nav-item">
         <button class="nav-link" class:active={tab === "plan"} onclick={() => (tab = "plan")}>Plan</button>
