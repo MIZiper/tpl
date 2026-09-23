@@ -19,7 +19,7 @@
   let contextMenu = $state<{ x: number; y: number; stepId: string; parentGroupId: string | null } | null>(null);
   let showAdhoc = $state(false);
   let adhocTitle = $state("");
-  let adhocNotes = $state("");
+  let adhocDescription = $state("");
   let adhocInputs = $state<string[]>([]);
   let adhocMeasurements = $state<string[]>([]);
   let adhocCriteria = $state<string[]>([]);
@@ -65,7 +65,7 @@
 
   function resetAdhoc() {
     adhocTitle = "";
-    adhocNotes = "";
+    adhocDescription = "";
     adhocInputs = [];
     adhocMeasurements = [];
     adhocCriteria = [];
@@ -117,7 +117,7 @@
   const displayStep = $derived(selStep || pureStep || (adhocBindings ? {
     type: "step" as const,
     title: selEntry?.step_title || "",
-    description: null as string | null,
+    description: (selEntry?.description ?? null) as string | null,
     duration_minutes: 0,
     changeover_minutes: 0,
     ...adhocBindings,
@@ -132,7 +132,7 @@
     return {
       type: "step" as const,
       title: entry.step_title || "",
-      description: null as string | null,
+      description: (entry.description ?? null) as string | null,
       duration_minutes: 0,
       changeover_minutes: 0,
       ...ab,
@@ -412,7 +412,7 @@
   function adhocNode(ae: ExecutionEntry): PlanNode {
     return {
       id: ae.id, type: "step", title: ae.step_title, children: [],
-      description: null, duration_minutes: 0, changeover_minutes: 0,
+      description: ae.description ?? null, duration_minutes: 0, changeover_minutes: 0,
       input_conditions: [], collection_items: [], completion_criteria: [],
       required_executions: 1,
       step_template_id: null, solution_step_id: null,
@@ -431,6 +431,7 @@
       id: generateId(),
       plan_step_id: null,
       step_title: adhocTitle,
+      description: adhocDescription.trim() || null,
       type: "adhoc",
       required_executions: 1,
       executions: [],
@@ -891,7 +892,7 @@
           {/if}
         {/if}
 
-        <div class="mb-2"><label class="form-label small fw-bold">Notes</label><textarea class="form-control form-control-sm" rows="2" placeholder="Notes" bind:value={adhocNotes}></textarea></div>
+        <div class="mb-2"><label class="form-label small fw-bold">Description</label><textarea class="form-control form-control-sm" rows="2" placeholder="Description" bind:value={adhocDescription}></textarea></div>
       </div>
       <div class="modal-footer"><button class="btn btn-secondary" onclick={resetAdhoc}>Cancel</button><button class="btn btn-primary" onclick={handleAdhoc} disabled={!adhocTitle}>Save</button></div>
     </div></div></div>

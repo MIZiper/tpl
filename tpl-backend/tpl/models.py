@@ -94,6 +94,7 @@ class ExecutionEntry(BaseModel):
     id: str
     plan_step_id: str | None = None
     step_title: str = ""
+    description: str | None = None
     type: str = "planned"
     required_executions: int = 1
     executions: list[ExecutionRun] = Field(default_factory=list)

@@ -33,6 +33,7 @@ export interface ExecutionEntry {
   id: string;
   plan_step_id: string | null;
   step_title: string;
+  description?: string | null;
   type: "planned" | "adhoc";
   required_executions: number;
   executions: ExecutionRun[];

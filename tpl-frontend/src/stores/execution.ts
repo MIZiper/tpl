@@ -88,11 +88,12 @@ export function flatPlanSteps(planDoc: PlanDocument | null): PlanNode[] {
   return flattenAllSteps(planDoc.root);
 }
 
-export function adhocEntry(title: string, notes: string | null): ExecutionEntry {
+export function adhocEntry(title: string, description: string | null): ExecutionEntry {
   return {
     id: generateId(),
     plan_step_id: null,
     step_title: title,
+    description,
     type: "adhoc",
     required_executions: 1,
     executions: [],

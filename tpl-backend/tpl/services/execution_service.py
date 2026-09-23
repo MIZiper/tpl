@@ -62,13 +62,13 @@ async def add_adhoc_entry(
     entry = ExecutionEntry(
         id=_new_id(),
         step_title=title,
+        description=notes,
         type="adhoc",
         executions=[ExecutionRun(
             id=_new_id(),
             status="completed",
             started_at=now,
             completed_at=now,
-            notes=notes,
         )],
     )
     doc.entries.append(entry)
