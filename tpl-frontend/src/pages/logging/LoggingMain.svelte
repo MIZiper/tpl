@@ -7,6 +7,8 @@
   import { positionMenu } from "../../lib/flip-menu";
   import { createValue, createBindingValue, PlainValue, getValueType, type Value } from "../../lib/values";
   import { defUnit } from "../../lib/fieldtypes";
+  import { formatDuration } from "../../lib/gantt";
+  import { formatElapsed as formatSpan } from "../../lib/signals";
   import type { ExecutionEntry, ExecutionRun } from "../../types/execution";
   import type { PlanNode, PlanFieldDef, FieldBinding } from "../../types/plan";
   import LogStepTree from "./LogStepTree.svelte";
@@ -61,6 +63,12 @@
     const m = Math.floor(s / 60);
     const sec = s % 60;
     return `${m}:${sec.toString().padStart(2, "0")}`;
+  }
+
+  function runDurationMs(r: ExecutionRun): number | null {
+    if (!r.started_at || !r.completed_at) return null;
+    const ms = new Date(r.completed_at).getTime() - new Date(r.started_at).getTime();
+    return ms >= 0 ? ms : null;
   }
 
   function resetAdhoc() {
@@ -562,6 +570,9 @@
               <div class="d-flex justify-content-between align-items-center">
                 <h5 class="mb-0">{displayStep.title}{#if selEntry?.type === "adhoc"} <small class="text-muted">(ad-hoc)</small>{/if}</h5>
                 <div class="d-flex align-items-center gap-2">
+                  {#if (Number(displayStep.duration_minutes) || 0) > 0}
+                    <small class="text-muted">Duration ~{formatDuration(Number(displayStep.duration_minutes) * 60000)}</small>
+                  {/if}
                   {#if selEntry}
                     {#if run}
                       <span class="badge bg-success">Running</span>
@@ -767,10 +778,14 @@
                 <div class="mb-3">
                   <div class="binding-category">Run History ({selEntry.executions.length})</div>
                   {#each selEntry.executions as r (r.id)}
+                    {@const durMs = runDurationMs(r)}
                     <div class="run-record">
                       <div class="d-flex align-items-center gap-2">
                         <span class="badge bg-{r.status === 'completed' ? 'success' : r.status === 'skipped' ? 'warning' : 'secondary'}">{r.status}</span>
                         <small>{formatTime(r.started_at)}{#if r.completed_at} → {formatTime(r.completed_at)}{/if}</small>
+                        {#if durMs != null}
+                          <small class="text-muted">· {formatSpan(durMs)}</small>
+                        {/if}
                         <span class="flex-grow-1"></span>
                         {#if r.status === "skipped"}
                           <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Delete skipped run" onclick={() => deleteRun(selEntry, r.id)}>&times;</button>
