@@ -409,6 +409,27 @@
     return entry.executions.find(r => r.status === "in_progress");
   }
 
+  async function deleteAdhoc(entry: ExecutionEntry) {
+    if (!doc) return;
+    if (entry.executions.some(r => r.status === "in_progress")) return;
+    if (!confirm(`Delete ad-hoc entry "${entry.step_title}"?`)) return;
+    doc.entries = doc.entries.filter(e => e.id !== entry.id);
+    if (selectedEntryId === entry.id) { selectedEntryId = null; selectedStepId = null; }
+    dirty();
+    await executionApi.saveDoc(id, doc);
+  }
+
+  async function deleteRun(entry: ExecutionEntry, runId: string) {
+    if (!doc) return;
+    const run = entry.executions.find(r => r.id === runId);
+    if (!run || run.status !== "skipped") return;
+    if (!confirm("Delete this skipped run?")) return;
+    const updated = { ...entry, executions: entry.executions.filter(r => r.id !== runId) };
+    doc.entries = doc.entries.map(e => e.id === entry.id ? updated : e);
+    dirty();
+    await executionApi.saveDoc(id, doc);
+  }
+
   function adhocNode(ae: ExecutionEntry): PlanNode {
     return {
       id: ae.id, type: "step", title: ae.step_title, children: [],
@@ -558,6 +579,9 @@
                         <span class="badge bg-info">{selEntry.executions.filter(r => r.status === "completed").length}/{selEntry.required_executions}</span>
                       {/if}
                       <button class="btn btn-sm btn-success" onclick={() => handleStartEntry(selEntry)}>Start</button>
+                    {/if}
+                    {#if selEntry.type === "adhoc" && !run}
+                      <button class="btn btn-sm btn-outline-danger" onclick={() => deleteAdhoc(selEntry)}>Delete</button>
                     {/if}
                     {:else}
                       {#if displayStep.required_executions > 1}
@@ -747,6 +771,10 @@
                       <div class="d-flex align-items-center gap-2">
                         <span class="badge bg-{r.status === 'completed' ? 'success' : r.status === 'skipped' ? 'warning' : 'secondary'}">{r.status}</span>
                         <small>{formatTime(r.started_at)}{#if r.completed_at} → {formatTime(r.completed_at)}{/if}</small>
+                        <span class="flex-grow-1"></span>
+                        {#if r.status === "skipped"}
+                          <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Delete skipped run" onclick={() => deleteRun(selEntry, r.id)}>&times;</button>
+                        {/if}
                       </div>
                       {#if r.input_readings.length > 0 || r.collection_results.length > 0 || r.criteria_results.length > 0}
                         <div class="run-mini-row">
