@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 
 from asyncpg import Connection
 
@@ -58,7 +58,7 @@ async def add_adhoc_entry(
     notes: str | None = None,
 ) -> ExecutionDoc:
     doc = await get_execution_doc(db, project_id)
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now().astimezone().isoformat()
     entry = ExecutionEntry(
         id=_new_id(),
         step_title=title,

@@ -2,6 +2,7 @@ import { writable, get } from "svelte/store";
 import type { ExecutionDoc, ExecutionEntry, ExecutionRun } from "../types/execution";
 import type { PlanDocument, PlanNode } from "../types/plan";
 import { findNode, flattenAllSteps, generateId } from "../lib/plan-utils";
+import { nowLocalISOWithOffset } from "../lib/time";
 
 interface ExecState {
   document: ExecutionDoc | null;
@@ -45,7 +46,7 @@ export function entryForStep(stepId: string): ExecutionEntry | undefined {
 }
 
 export function startRun(entry: ExecutionEntry): ExecutionEntry {
-  const now = new Date().toISOString();
+  const now = nowLocalISOWithOffset();
   return {
     ...entry,
     executions: [
@@ -56,7 +57,7 @@ export function startRun(entry: ExecutionEntry): ExecutionEntry {
 }
 
 export function completeRun(entry: ExecutionEntry, runId: string, data: { input_readings?: any[], collection_results?: any[], criteria_results?: any[], notes?: string }): ExecutionEntry {
-  const now = new Date().toISOString();
+  const now = nowLocalISOWithOffset();
   return {
     ...entry,
     executions: entry.executions.map(r => r.id === runId

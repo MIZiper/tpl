@@ -2,13 +2,15 @@
   import { onMount } from "svelte";
   import { p, route } from "../../router";
   import { execState, load, init, saveDoc, startRun, completeRun, updateRun, computeEntryStatus } from "../../stores/execution";
-  import { executionApi, planApi } from "../../lib/api";
+  import { executionApi, planApi, documentsApi } from "../../lib/api";
   import { findNode, generateId, computeStepOutputs, outputsOf, parseNum, orderedInputDefs, visibleInputDefs, isInputHidden, inputSizeFor, inputSizeClass, type StepOutputs } from "../../lib/plan-utils";
+  import { buildExecutionExport, downloadExecutionJSON } from "../../lib/execution-export";
   import { positionMenu } from "../../lib/flip-menu";
   import { createValue, createBindingValue, PlainValue, getValueType, type Value } from "../../lib/values";
   import { defUnit } from "../../lib/fieldtypes";
   import { formatDuration } from "../../lib/gantt";
   import { formatElapsed as formatSpan } from "../../lib/signals";
+  import { nowLocalISOWithOffset } from "../../lib/time";
   import type { ExecutionEntry, ExecutionRun } from "../../types/execution";
   import type { PlanNode, PlanFieldDef, FieldBinding } from "../../types/plan";
   import LogStepTree from "./LogStepTree.svelte";
@@ -361,7 +363,7 @@
     const data = step ? collectRunData(step, prev) : {};
     const updated = updateRun(prev, activeRun.id, {
       status,
-      completed_at: new Date().toISOString(),
+      completed_at: nowLocalISOWithOffset(),
       ...data,
     });
     doc.entries = doc.entries.map(e => e.id === prev.id ? updated : e);
@@ -406,7 +408,7 @@
   async function handleSkipRun(runId: string) {
     if (!doc || !selEntry || !displayStep) return;
     const data = collectRunData(displayStep, selEntry);
-    const updated = updateRun(selEntry, runId, { status: "skipped", completed_at: new Date().toISOString(), ...data });
+    const updated = updateRun(selEntry, runId, { status: "skipped", completed_at: nowLocalISOWithOffset(), ...data });
     doc.entries = doc.entries.map(e => e.id === selEntry.id ? updated : e);
     resetRunState();
     dirty();
@@ -482,6 +484,17 @@
     await init(id, executionApi.initialize);
   }
 
+  async function handleExport() {
+    if (!doc) return;
+    let document: { id: string; name: string; description: string | null } = { id, name: id, description: null };
+    try {
+      const d = await documentsApi.get(id);
+      document = { id: d.id, name: d.name || id, description: d.description ?? null };
+    } catch { /* fall back to the id */ }
+    const data = buildExecutionExport(doc, plan, document);
+    downloadExecutionJSON(data, `execution-log-${id.slice(0, 8)}.json`);
+  }
+
   function defName(fieldId: string): string {
     return defField(fieldId)?.name ?? fieldId;
   }
@@ -496,8 +509,12 @@
     return { active: "Active", completed: "Done", partial: `${entry.executions.filter(r => r.status==="completed").length}/${entry.required_executions}`, pending: "" }[s] || "";
   }
 
+  // Show the recorded wall clock for offset-stamped times (stable across
+  // timezones); fall back to the reader's local time for legacy UTC values.
   function formatTime(ts: string | null): string {
     if (!ts) return "";
+    const m = ts.trim().match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(?:\.\d+)?[+-]\d{2}:?\d{2}$/);
+    if (m) return `${m[1]} ${m[2]}`;
     return new Date(ts).toLocaleString();
   }
 </script>
@@ -511,6 +528,7 @@
       <button class="btn btn-sm btn-primary" onclick={handleInit}>Initialize</button>
     {:else}
       <button class="btn btn-sm btn-outline-info" onclick={() => (showAdhoc = true)}>+ Ad-hoc</button>
+      <button class="btn btn-sm btn-outline-success ms-1" onclick={handleExport}>Export</button>
     {/if}
   </div>
 
