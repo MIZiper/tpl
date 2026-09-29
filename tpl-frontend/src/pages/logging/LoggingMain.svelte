@@ -14,6 +14,7 @@
   import type { ExecutionEntry, ExecutionRun } from "../../types/execution";
   import type { PlanNode, PlanFieldDef, FieldBinding } from "../../types/plan";
   import LogStepTree from "./LogStepTree.svelte";
+  import SummaryModal from "./SummaryModal.svelte";
   import DocumentNav from "../../components/DocumentNav.svelte";
 
   let id: string = $derived(route.params.id ?? "");
@@ -22,6 +23,7 @@
   let selectedEntryId = $state<string | null>(null);
   let contextMenu = $state<{ x: number; y: number; stepId: string; parentGroupId: string | null } | null>(null);
   let showAdhoc = $state(false);
+  let showSummary = $state(false);
   let adhocTitle = $state("");
   let adhocDescription = $state("");
   let adhocInputs = $state<string[]>([]);
@@ -542,6 +544,7 @@
       <button class="btn btn-sm btn-primary" onclick={handleInit}>Initialize</button>
     {:else}
       <button class="btn btn-sm btn-outline-info" onclick={() => (showAdhoc = true)}>+ Ad-hoc</button>
+      <button class="btn btn-sm btn-outline-primary ms-1" onclick={() => (showSummary = true)}>Summary</button>
       <button class="btn btn-sm btn-outline-success ms-1" onclick={handleExport}>Export</button>
     {/if}
   </div>
@@ -991,6 +994,10 @@
         <button class="btn btn-success" onclick={conflictStopPrevious}>Stop Previous &amp; Start</button>
       </div>
     </div></div></div>
+  {/if}
+
+  {#if showSummary && doc}
+    <SummaryModal {plan} {doc} onClose={() => (showSummary = false)} />
   {/if}
 </div>
 
