@@ -419,6 +419,20 @@
     return entry.executions.find(r => r.status === "in_progress");
   }
 
+  async function deleteInputReading(entry: ExecutionEntry, runId: string, index: number) {
+    if (!doc) return;
+    const run = entry.executions.find(r => r.id === runId);
+    const reading = run?.input_readings[index];
+    if (!run || !reading) return;
+    if (!confirm(`Delete input "${reading.definition_name}" from this run?`)) return;
+    const updated = updateRun(entry, runId, {
+      input_readings: run.input_readings.filter((_, i) => i !== index),
+    });
+    doc.entries = doc.entries.map(e => e.id === entry.id ? updated : e);
+    dirty();
+    await executionApi.saveDoc(id, doc);
+  }
+
   async function deleteAdhoc(entry: ExecutionEntry) {
     if (!doc) return;
     if (entry.executions.some(r => r.status === "in_progress")) return;
@@ -814,8 +828,11 @@
                           {#if r.input_readings.length > 0}
                             <div class="run-mini-col">
                               <div class="run-mini-label">Inputs</div>
-                              {#each r.input_readings as ir}
-                                <span class="run-mini-chip">{ir.definition_name}: {ir.value ?? "—"}</span>
+                              {#each r.input_readings as ir, i (ir.definition_id)}
+                                <span class="run-mini-chip">
+                                  {ir.definition_name}: {ir.value ?? "—"}
+                                  <button class="chip-del" title="Remove input from this run" onclick={() => deleteInputReading(selEntry, r.id, i)}>&times;</button>
+                                </span>
                               {/each}
                             </div>
                           {/if}
@@ -1020,6 +1037,8 @@
   }
   .run-mini-chip.pass { background: #d1e7dd; color: #0f5132; }
   .run-mini-chip.fail { background: #f8d7da; color: #842029; }
+  .chip-del { border: none; background: none; color: #dc3545; font-size: 0.9rem; line-height: 1; padding: 0 0 0 3px; cursor: pointer; vertical-align: middle; }
+  .chip-del:hover { color: #842029; }
   .context-menu { background: #fff; border: 1px solid #dee2e6; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,.15); padding: 4px 0; min-width: 160px; z-index: 1000; }
   .context-item { display: block; width: 100%; text-align: left; padding: 6px 14px; border: none; background: none; font-size: 0.85rem; cursor: pointer; }
   .context-item:hover { background: #e9ecef; }
