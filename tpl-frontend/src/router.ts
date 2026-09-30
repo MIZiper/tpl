@@ -7,6 +7,7 @@ import PlanEditor from "./pages/plan/PlanEditor.svelte";
 import LoggingMain from "./pages/logging/LoggingMain.svelte";
 import GanttMain from "./pages/gantt/GanttMain.svelte";
 import SignalsMain from "./pages/signals/SignalsMain.svelte";
+import AdminEditor from "./pages/admin/AdminEditor.svelte";
 
 export const { p, navigate, isActive, route } = createRouter({
   layout: Layout,
@@ -20,6 +21,7 @@ export const { p, navigate, isActive, route } = createRouter({
       "/logging": LoggingMain,
       "/gantt": GanttMain,
       "/signals": SignalsMain,
+      "/admin": AdminEditor,
     },
   },
 });

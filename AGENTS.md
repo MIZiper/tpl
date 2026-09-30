@@ -28,8 +28,8 @@ tpl/
 │       └── sql/001_initial.sql
 ├── tpl-frontend/             # Svelte 5 document UI
 │   └── src/
-│       ├── router.ts         # /documents, /documents/:id/{plan,logging,gantt,signals}
-│       ├── pages/            # Home, documents/, plan/, logging/, gantt/, signals/
+│       ├── router.ts         # /documents, /documents/:id/{plan,logging,gantt,signals,admin}
+│       ├── pages/            # Home, documents/, plan/, logging/, gantt/, signals/, admin/
 │       ├── stores/           # documents, plan, execution
 │       ├── lib/              # api/, plan-utils, gantt, signals, struct/transform registries
 │       └── types/            # document, plan, execution
@@ -77,7 +77,9 @@ Ports: tpl-backend `8000`, rsp-backend `8001`, tpl-frontend dev `5173`, rsp-fron
   - `ExecutionEntry`: `{ id, plan_step_id, step_title, type(planned|adhoc), required_executions, executions: ExecutionRun[], selected_bindings }`.
   - `ExecutionRun`: `{ id, status(pending|in_progress|completed|skipped), started_at, completed_at, input_readings[], collection_results[], criteria_results[], notes }`.
 
-Endpoints (all under `/api`): documents CRUD, `GET/PUT .../plan-document`, `GET/PUT .../execution-document`, `POST .../execution-document/initialize`, `POST .../execution-document/adhoc`.
+Endpoints (all under `/api`): documents CRUD, `GET .../raw`, `GET/PUT .../plan-document`, `GET/PUT .../execution-document`, `POST .../execution-document/initialize`, `POST .../execution-document/adhoc`.
+
+**Admin JSON editor** (`/documents/:id/admin`): no auth (trusted/local tool). It reads both JSONB documents verbatim via `GET .../raw` (unvalidated, so malformed documents still open for repair) and writes back through the existing validated `PUT .../plan-document` / `PUT .../execution-document` endpoints. There is no `created_by`/role model yet, so "creator vs admin" is not enforced.
 
 There is **no** initialize-from-solutions: plan documents are authored by hand in the plan editor. Offline = JSON export/import only.
 

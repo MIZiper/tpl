@@ -50,6 +50,15 @@ async def delete_document(document_id: str, db: Connection = Depends(get_connect
     return None
 
 
+@router.get("/documents/{document_id}/raw")
+async def get_raw_documents(document_id: str, db: Connection = Depends(get_connection)):
+    """Raw (unvalidated) plan_document + execution_document for the admin page."""
+    data = await documents_service.get_raw_documents(db, document_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return data
+
+
 @router.get("/documents/{document_id}/plan-document", response_model=PlanDocument)
 async def get_plan_document(document_id: str, db: Connection = Depends(get_connection)):
     return await plan_service.get_plan_document(db, document_id)

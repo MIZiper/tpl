@@ -1,11 +1,12 @@
 import api from "./client";
-import type { Document } from "../../types/document";
+import type { Document, RawDocuments } from "../../types/document";
 import type { PlanDocument } from "../../types/plan";
 import type { ExecutionDoc } from "../../types/execution";
 
 export const documentsApi = {
   list: () => api.get<Document[]>("/api/documents"),
   get: (id: string) => api.get<Document>(`/api/documents/${id}`),
+  raw: (id: string) => api.get<RawDocuments>(`/api/documents/${id}/raw`),
   create: (data: Partial<Document>) => api.post<Document>("/api/documents", data),
   update: (id: string, data: Partial<Document>) => api.put<Document>(`/api/documents/${id}`, data),
   delete: (id: string) => api.delete<void>(`/api/documents/${id}`),

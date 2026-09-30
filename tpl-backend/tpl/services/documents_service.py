@@ -15,6 +15,23 @@ async def get_document(db: Connection, document_id: str) -> Document | None:
     return Document.model_validate(dict(row))
 
 
+async def get_raw_documents(db: Connection, document_id: str) -> dict | None:
+    """Return the stored JSONB documents verbatim, without pydantic validation.
+
+    Used by the admin page so it can display (and repair) whatever is actually
+    in the database, even if it no longer matches the PlanDocument/ExecutionDoc
+    models. Saving still goes through the validated plan/execution endpoints.
+    """
+    row = await db.fetchrow(
+        "SELECT id, name, description, plan_document, execution_document, updated_at "
+        "FROM documents WHERE id = $1",
+        document_id,
+    )
+    if row is None:
+        return None
+    return dict(row)
+
+
 async def create_document(db: Connection, data: DocumentCreate) -> Document:
     row = await db.fetchrow(
         "INSERT INTO documents (name, description) VALUES ($1, $2) RETURNING *",

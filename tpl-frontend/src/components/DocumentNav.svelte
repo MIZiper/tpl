@@ -3,7 +3,7 @@
 
   interface Props {
     id: string;
-    current: "plan" | "logging" | "gantt" | "signals";
+    current?: "plan" | "logging" | "gantt" | "signals";
   }
 
   let { id, current }: Props = $props();
