@@ -41,6 +41,10 @@
   let resolveNotes = $state("");
   let restoredPauseRunId: string | null = null;
 
+  // Skip-with-comment
+  let skipModal = $state<{ runId: string } | null>(null);
+  let skipNote = $state("");
+
   // Interactive state for active run
   let measValues = $state<Record<string, string>>({});
   let measFlags = $state<Record<string, "pass" | "fail" | null>>({});
@@ -491,14 +495,30 @@
     await executionApi.saveDoc(id, doc);
   }
 
-  async function handleSkipRun(runId: string) {
+  async function handleSkipRun(runId: string, note = "") {
     if (!doc || !selEntry || !displayStep) return;
     const data = collectRunData(displayStep, selEntry);
-    const updated = updateRun(selEntry, runId, { status: "skipped", completed_at: nowLocalISOWithOffset(), ...data });
+    const updated = updateRun(selEntry, runId, { status: "skipped", completed_at: nowLocalISOWithOffset(), notes: note.trim() || null, ...data });
     doc.entries = doc.entries.map(e => e.id === selEntry.id ? updated : e);
     resetRunState();
     dirty();
     await executionApi.saveDoc(id, doc);
+  }
+
+  function openSkip(runId: string) {
+    skipNote = "";
+    skipModal = { runId };
+  }
+
+  function closeSkip() {
+    skipModal = null;
+  }
+
+  async function confirmSkip() {
+    if (!skipModal) return;
+    const { runId } = skipModal;
+    skipModal = null;
+    await handleSkipRun(runId, skipNote);
   }
 
   function activeRun(entry: ExecutionEntry): ExecutionRun | undefined {
@@ -865,7 +885,7 @@
                     </div>
                     <div class="d-flex gap-2 mt-1">
                       <button class="btn btn-success btn-sm" onclick={() => handleCompleteRun(run.id)}>Complete</button>
-                      <button class="btn btn-outline-secondary btn-sm" onclick={() => handleSkipRun(run.id)}>Skip</button>
+                      <button class="btn btn-outline-secondary btn-sm" onclick={() => openSkip(run.id)}>Skip</button>
                     </div>
                   </div>
                 </div>
@@ -1199,6 +1219,23 @@
         <div class="mb-2"><label class="form-label small fw-bold">Description</label><textarea class="form-control form-control-sm" rows="2" placeholder="Description" bind:value={adhocDescription}></textarea></div>
       </div>
       <div class="modal-footer"><button class="btn btn-secondary" onclick={resetAdhoc}>Cancel</button><button class="btn btn-primary" onclick={handleAdhoc} disabled={!adhocTitle}>Save</button></div>
+    </div></div></div>
+  {/if}
+
+  {#if skipModal}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="modal-backdrop" onclick={closeSkip}></div>
+    <div class="modal d-block" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+      <div class="modal-header bg-secondary text-white"><h5 class="modal-title">Skip Run</h5><button class="btn-close btn-close-white" onclick={closeSkip}></button></div>
+      <div class="modal-body">
+        {#if displayStep}<p class="mb-2">Skipping <strong>{displayStep.title}</strong></p>{/if}
+        <label class="form-label small fw-bold">Comment (optional)</label>
+        <textarea class="form-control form-control-sm" rows="3" placeholder="Why is this run skipped?" bind:value={skipNote}></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick={closeSkip}>Cancel</button>
+        <button class="btn btn-warning" onclick={confirmSkip}>Skip</button>
+      </div>
     </div></div></div>
   {/if}
 
