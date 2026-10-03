@@ -199,7 +199,7 @@
     </p>
   {:else}
     <p class="text-muted small mb-2">
-      Shape: <code>{"{version, status, entries, pause_history}"}</code> · easier visual editing on the
+      Shape: <code>{"{version, entries}"}</code> · easier visual editing on the
       <a href={p("/documents/:id/logging", { params: { id } })}>Log page</a>.
     </p>
   {/if}

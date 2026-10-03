@@ -47,7 +47,5 @@ export interface ExecutionEntry {
 
 export interface ExecutionDoc {
   version: number;
-  status: "idle" | "in_progress" | "paused" | "completed";
   entries: ExecutionEntry[];
-  pause_history: { paused_at: string; resumed_at?: string; reason?: string }[];
 }

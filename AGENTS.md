@@ -73,7 +73,7 @@ Ports: tpl-backend `8000`, rsp-backend `8001`, tpl-frontend dev `5173`, rsp-fron
   - `FieldBinding`: `{ definition_id, value?, valueTypeId?, params? }` — `value` for plain scalars; `valueTypeId`+`params` for ramp/tolerance/percentage/sinusoidal.
   - `TransformDef`: `{ id, name, typeId, inputs:[{role, definitionId}], outputs:[{role, definitionId}], params }` — output field name/unit are read from each target def, not duplicated. Legacy single-output docs store `derivedDefId` instead; `outputsOf()` resolves both.
   - `PlanNode`: `{ id, type(group|step), title, children[], duration_minutes, changeover_minutes, input_conditions[]/collection_items[]/completion_criteria[] (FieldBinding[]), required_executions, step_template_id, solution_step_id }`.
-- `ExecutionDoc`: `{ version, status(idle|in_progress|paused|completed), entries: ExecutionEntry[], pause_history[] }`.
+- `ExecutionDoc`: `{ version, entries: ExecutionEntry[] }`.
   - `ExecutionEntry`: `{ id, plan_step_id, step_title, type(planned|adhoc), required_executions, executions: ExecutionRun[], selected_bindings }`.
   - `ExecutionRun`: `{ id, status(pending|in_progress|completed|skipped), started_at, completed_at, input_readings[], collection_results[], criteria_results[], notes }`.
 

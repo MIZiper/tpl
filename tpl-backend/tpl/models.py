@@ -103,9 +103,7 @@ class ExecutionEntry(BaseModel):
 
 class ExecutionDoc(BaseModel):
     version: int = 1
-    status: str = "idle"
     entries: list[ExecutionEntry] = Field(default_factory=list)
-    pause_history: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ExecutionDocUpdate(BaseModel):
