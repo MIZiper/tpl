@@ -180,6 +180,13 @@
   const selStep = $derived(selEntry?.plan_step_id && plan ? findNode(plan.root, selEntry.plan_step_id) : null);
   const pureStep = $derived(selectedStepId && plan ? findNode(plan.root, selectedStepId) : null);
 
+  // Only the entry owning the active (or paused) run is allowed to read the
+  // live edit buffers; every other step falls back to its bound plan values.
+  const liveEntryId = $derived(
+    doc?.entries.find(e => e.executions.some(r => r.status === "in_progress" || r.status === "paused"))?.id ?? null
+  );
+  const isLiveView = $derived(!!selEntry && selEntry.id === liveEntryId);
+
   function adhocBindingsFor(entry: ExecutionEntry | undefined) {
     if (!(entry?.type === "adhoc" && plan && entry.selected_bindings)) return null;
     return {
@@ -233,17 +240,19 @@
     return null;
   }
 
-  // Effective bound Values for a step (live edits merged in).
+  // Effective bound Values for a step (live edits merged in). Live buffers are
+  // only applied when this step is the one currently being edited.
   function buildStepValues(step: PlanNode, entry: ExecutionEntry | undefined): Record<string, Value> {
     const map: Record<string, Value> = {};
     if (!plan) return map;
+    const live = entry?.id === liveEntryId;
     for (const b of step.input_conditions) {
       const def = defField(b.definition_id);
       if (def?.derived === true) continue;
       if (def?.typeId === "struct") {
         map[b.definition_id] = createBindingValue(b, def);
       } else if (b.valueTypeId) {
-        const lp = liveInputParams[b.definition_id] ?? {};
+        const lp = live ? (liveInputParams[b.definition_id] ?? {}) : {};
         const params: Record<string, unknown> = { ...(b.params ?? {}) };
         for (const [k, v] of Object.entries(lp)) {
           if (v === "" || v == null) delete params[k];
@@ -251,7 +260,7 @@
         }
         map[b.definition_id] = createValue(b.valueTypeId, params, null);
       } else {
-        const raw = inputValues[b.definition_id] ?? b.value ?? (entry?.selected_bindings?.input_values as any)?.[b.definition_id];
+        const raw = (live ? inputValues[b.definition_id] : undefined) ?? b.value ?? (entry?.selected_bindings?.input_values as any)?.[b.definition_id];
         let val: unknown = raw ?? null;
         if (def?.typeId === "number") val = val === "" || val == null ? null : parseNum(String(val));
         map[b.definition_id] = new PlainValue(val as number | string | null);
@@ -259,7 +268,7 @@
     }
     for (const b of step.collection_items) {
       const def = defField(b.definition_id);
-      const v = measValues[b.definition_id];
+      const v = live ? measValues[b.definition_id] : undefined;
       if (v !== undefined && v !== "") {
         map[b.definition_id] = new PlainValue(def?.typeId === "number" ? parseNum(v) : v);
       } else if (b.value != null) {
@@ -889,7 +898,7 @@
                       {@const isDerived = d.derived === true}
                       {@const value = stepValues[d.id]}
                       {@const out = isDerived ? outputs.byDef[d.id] : undefined}
-                      {@const lp = liveInputParams[d.id] ?? {}}
+                      {@const lp = isLiveView ? (liveInputParams[d.id] ?? {}) : {}}
                       <div class="field-block {inputSizeClass(inputSizeFor(d.id, plan?.input_layout))}" class:derived={isDerived}>
                         <div class="field-block-label">
                           {d.name}
@@ -957,8 +966,8 @@
                     {#each displayStep.collection_items as b (b.definition_id)}
                       {@const d = defField(b.definition_id)}
                       {@const saved = run?.collection_results.find(r => r.definition_id === b.definition_id)}
-                      {@const chosen = measFlags[b.definition_id]}
-                      {@const val = measValues[b.definition_id]}
+                      {@const chosen = isLiveView ? measFlags[b.definition_id] : undefined}
+                      {@const val = isLiveView ? measValues[b.definition_id] : undefined}
                       <div class="field-block measurement">
                         <div class="field-block-label">{d?.name || b.definition_id.slice(0,8)}</div>
                         {#if defUnit(d)}<small class="text-muted">{defUnit(d)}</small>{/if}
@@ -995,7 +1004,7 @@
                     {#each displayStep.completion_criteria as b (b.definition_id)}
                       {@const d = defField(b.definition_id)}
                       {@const saved = run?.criteria_results.find(r => r.definition_id === b.definition_id)}
-                      {@const chosen = critFlags[b.definition_id]}
+                      {@const chosen = isLiveView ? critFlags[b.definition_id] : undefined}
                       <div class="field-block criteria" class:passed={chosen === true} class:failed={chosen === false}>
                         <div class="field-block-label">{d?.name || b.definition_id.slice(0,8)}</div>
                         {#if run && !saved}
