@@ -18,15 +18,25 @@ export interface ExecutionCriteriaResult {
   notes: string | null;
 }
 
+export interface ExecutionDraft {
+  inputValues: Record<string, string>;
+  measValues: Record<string, string>;
+  measFlags: Record<string, "pass" | "fail" | null>;
+  critFlags: Record<string, boolean | null>;
+  liveInputParams: Record<string, Record<string, string>>;
+}
+
 export interface ExecutionRun {
   id: string;
-  status: "pending" | "in_progress" | "completed" | "skipped";
+  status: "pending" | "in_progress" | "paused" | "completed" | "skipped";
   started_at: string | null;
   completed_at: string | null;
   input_readings: ExecutionReading[];
   collection_results: ExecutionResult[];
   criteria_results: ExecutionCriteriaResult[];
   notes: string | null;
+  paused_at?: string | null;
+  draft?: ExecutionDraft | null;
 }
 
 export interface ExecutionEntry {

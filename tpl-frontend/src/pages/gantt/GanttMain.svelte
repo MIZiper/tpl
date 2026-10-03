@@ -57,7 +57,7 @@
   const actualLayout = $derived(exec ? buildActualRows(plan?.root ?? [], exec.entries, nowMs) : null);
   const hasActual = $derived(hasActualBars(actualLayout));
   const hasActive = $derived(
-    (exec?.entries ?? []).some((e) => e.executions.some((r) => r.status === "in_progress"))
+    (exec?.entries ?? []).some((e) => e.executions.some((r) => r.status === "in_progress" || r.status === "paused"))
   );
 
   const planTotalMs = $derived(planLayout ? planLayout.maxMs - planLayout.minMs : 0);

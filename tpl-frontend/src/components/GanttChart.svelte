@@ -152,6 +152,7 @@
 
   .gantt-bar.actual.status-completed { background: #198754; }
   .gantt-bar.actual.status-in_progress { background: #0d6efd; }
+  .gantt-bar.actual.status-paused { background: #fd7e14; }
   .gantt-bar.actual.status-skipped { background: #ffc107; }
   .gantt-bar.actual.status-pending { background: #adb5bd; }
   .gantt-bar.actual.status-none { background: #6c757d; }

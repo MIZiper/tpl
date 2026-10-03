@@ -88,6 +88,8 @@ class ExecutionRun(BaseModel):
     collection_results: list[ExecutionResult] = Field(default_factory=list)
     criteria_results: list[ExecutionCriteriaResult] = Field(default_factory=list)
     notes: str | None = None
+    paused_at: str | None = None
+    draft: dict[str, Any] | None = None
 
 
 class ExecutionEntry(BaseModel):

@@ -75,7 +75,10 @@ Ports: tpl-backend `8000`, rsp-backend `8001`, tpl-frontend dev `5173`, rsp-fron
   - `PlanNode`: `{ id, type(group|step), title, children[], duration_minutes, changeover_minutes, input_conditions[]/collection_items[]/completion_criteria[] (FieldBinding[]), required_executions, step_template_id, solution_step_id }`.
 - `ExecutionDoc`: `{ version, entries: ExecutionEntry[] }`.
   - `ExecutionEntry`: `{ id, plan_step_id, step_title, type(planned|adhoc), required_executions, executions: ExecutionRun[], selected_bindings }`.
-  - `ExecutionRun`: `{ id, status(pending|in_progress|completed|skipped), started_at, completed_at, input_readings[], collection_results[], criteria_results[], notes }`.
+  - `ExecutionRun`: `{ id, status(pending|in_progress|paused|completed|skipped), started_at, completed_at, input_readings[], collection_results[], criteria_results[], notes, paused_at?, draft? }`.
+    - **Pause / emergency transfer** (Log page): while a run is active the user can Pause it — the run becomes `paused`, `paused_at` records the instant, and `draft` stashes the live edits (`{inputValues, measValues, measFlags, critFlags, liveInputParams}`) so a reload can restore them. While paused, no other run may start.
+    - *Resolve → Resume*: the run returns to `in_progress` with `started_at` unchanged, so the pause time counts continuously; `paused_at`/`draft` are cleared.
+    - *Resolve → Confirm*: the interrupted run is closed as `skipped` (or `completed`) with `completed_at = paused_at`, and the emergency timing is transferred to a chosen target (any plan step, an existing ad-hoc entry, or a new ad-hoc entry) as a fresh `in_progress` run with `started_at = paused_at` (timing continues seamlessly). An emergency that is already over is finished by completing that run normally. There is no per-run pause history — a paused run splits into the closed original run plus the emergency run.
 
 Endpoints (all under `/api`): documents CRUD, `GET .../raw`, `GET/PUT .../plan-document`, `GET/PUT .../execution-document`, `POST .../execution-document/initialize`, `POST .../execution-document/adhoc`.
 

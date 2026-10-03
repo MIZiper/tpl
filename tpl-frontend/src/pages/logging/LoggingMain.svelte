@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { p, route } from "../../router";
-  import { execState, load, init, saveDoc, startRun, completeRun, updateRun, computeEntryStatus } from "../../stores/execution";
+  import { execState, load, init, saveDoc, startRun, startRunAt, pauseRun, resumeRun, pausedRun, flatPlanSteps, completeRun, updateRun, computeEntryStatus } from "../../stores/execution";
   import { executionApi, planApi, documentsApi } from "../../lib/api";
   import { findNode, generateId, computeStepOutputs, outputsOf, parseNum, orderedInputDefs, visibleInputDefs, isInputHidden, inputSizeFor, inputSizeClass, type StepOutputs } from "../../lib/plan-utils";
   import { buildExecutionExport, downloadExecutionJSON } from "../../lib/execution-export";
@@ -11,7 +11,7 @@
   import { formatDuration } from "../../lib/gantt";
   import { formatElapsed as formatSpan } from "../../lib/signals";
   import { nowLocalISOWithOffset } from "../../lib/time";
-  import type { ExecutionEntry, ExecutionRun } from "../../types/execution";
+  import type { ExecutionDraft, ExecutionEntry, ExecutionRun } from "../../types/execution";
   import type { PlanNode, PlanFieldDef, FieldBinding } from "../../types/plan";
   import LogStepTree from "./LogStepTree.svelte";
   import SummaryModal from "./SummaryModal.svelte";
@@ -33,6 +33,14 @@
   let conflictModal = $state<{ stepId?: string; entryId?: string; activeEntry: ExecutionEntry | null } | null>(null);
   let tick = $state(0);
 
+  // Pause / emergency-transfer resolution
+  let resolveModal = $state(false);
+  let resolveTarget = $state("");
+  let resolveOutcome = $state<"skipped" | "completed">("skipped");
+  let resolveNewAdhocTitle = $state("");
+  let resolveNotes = $state("");
+  let restoredPauseRunId: string | null = null;
+
   // Interactive state for active run
   let measValues = $state<Record<string, string>>({});
   let measFlags = $state<Record<string, "pass" | "fail" | null>>({});
@@ -45,9 +53,8 @@
   }
 
   $effect(() => {
-    const run = activeRunForAny();
-    if (!run?.started_at) return;
-    const started = new Date(run.started_at).getTime();
+    const started = timerStart();
+    if (started == null) return;
     const update = () => { tick = Math.floor((Date.now() - started) / 1000); };
     update();
     const interval = setInterval(update, 1000);
@@ -61,6 +68,28 @@
       if (r) return r;
     }
     return undefined;
+  }
+
+  function pausedEntryForAny(): ExecutionEntry | null {
+    if (!doc) return null;
+    return doc.entries.find(e => e.executions.some(r => r.status === "paused")) || null;
+  }
+
+  // Elapsed clock source: the active run's start, else the pause point of a
+  // paused run (emergency timing continues from there).
+  function timerStart(): number | null {
+    const run = activeRunForAny();
+    if (run?.started_at) {
+      const t = new Date(run.started_at).getTime();
+      if (Number.isFinite(t)) return t;
+    }
+    const pe = pausedEntryForAny();
+    const pr = pe ? pausedRun(pe) : undefined;
+    if (pr?.paused_at) {
+      const t = new Date(pr.paused_at).getTime();
+      if (Number.isFinite(t)) return t;
+    }
+    return null;
   }
 
   function formatElapsed(s: number): string {
@@ -90,6 +119,48 @@
   // --- Data helpers ---
   let doc = $derived($execState.document);
   let plan = $derived($execState.planDoc);
+  const pausedEntry = $derived(doc?.entries.find(e => e.executions.some(r => r.status === "paused")) ?? null);
+  const hasRunning = $derived((doc?.entries ?? []).some(e => e.executions.some(r => r.status === "in_progress")));
+
+  // Restore the stashed live edits of a paused run (e.g. after a page reload).
+  $effect(() => {
+    const pe = pausedEntry;
+    const pr = pe ? pausedRun(pe) : undefined;
+    if (!pe || !pr) { restoredPauseRunId = null; return; }
+    if (restoredPauseRunId === pr.id) return;
+    restoreDraft(pr.draft ?? null);
+    restoredPauseRunId = pr.id;
+  });
+
+  function restoreDraft(d: ExecutionDraft | null) {
+    inputValues = { ...(d?.inputValues ?? {}) };
+    measValues = { ...(d?.measValues ?? {}) };
+    measFlags = { ...(d?.measFlags ?? {}) };
+    critFlags = { ...(d?.critFlags ?? {}) };
+    liveInputParams = { ...(d?.liveInputParams ?? {}) };
+  }
+
+  function snapshotDraft(): ExecutionDraft {
+    return {
+      inputValues: { ...inputValues },
+      measValues: { ...measValues },
+      measFlags: { ...measFlags },
+      critFlags: { ...critFlags },
+      liveInputParams: { ...liveInputParams },
+    };
+  }
+
+  // Emergency transfer targets: every plan step (entry optional), existing
+  // ad-hoc entries, and a brand-new ad-hoc entry.
+  const resolveTargets = $derived.by(() => {
+    const out: { id: string; label: string }[] = [];
+    if (plan) for (const s of flatPlanSteps(plan)) out.push({ id: `step:${s.id}`, label: s.title });
+    for (const e of doc?.entries ?? []) {
+      if (e.type === "adhoc") out.push({ id: `entry:${e.id}`, label: `(ad-hoc) ${e.step_title}` });
+    }
+    out.push({ id: "__new_adhoc__", label: "New ad-hoc emergency" });
+    return out;
+  });
 
   function entryForStep(stepId: string): ExecutionEntry | undefined {
     return doc?.entries.find(e => e.plan_step_id === stepId && e.type === "planned");
@@ -293,6 +364,10 @@
   // clobbering another step's active run.
   function beginStart(target: { stepId?: string; entryId?: string }) {
     if (!doc) return;
+    if (pausedEntry) {
+      alert("Resolve the paused run first.");
+      return;
+    }
     const active = findActive();
     if (active) {
       conflictModal = { ...target, activeEntry: active };
@@ -421,6 +496,115 @@
     return entry.executions.find(r => r.status === "in_progress");
   }
 
+  // --- Pause / emergency transfer ---
+  // Works regardless of which step is selected: pauses whichever run is active.
+  async function handlePauseRun() {
+    if (!doc) return;
+    const entry = findActive();
+    if (!entry) return;
+    const run = activeRun(entry);
+    if (!run) return;
+    const updated = pauseRun(entry, run.id, snapshotDraft());
+    doc.entries = doc.entries.map(e => e.id === entry.id ? updated : e);
+    selectedEntryId = entry.id;
+    selectedStepId = entry.plan_step_id ?? entry.id;
+    dirty();
+    await executionApi.saveDoc(id, doc);
+  }
+
+  function openResolve() {
+    resolveTarget = "";
+    resolveOutcome = "skipped";
+    resolveNewAdhocTitle = "";
+    resolveNotes = "";
+    resolveModal = true;
+  }
+
+  function closeResolve() {
+    resolveModal = false;
+  }
+
+  // Scenario 1: status resolved — resume the interrupted run; the pause time
+  // counts continuously because started_at is unchanged.
+  async function resolveResume() {
+    if (!doc || !pausedEntry) return;
+    const pr = pausedRun(pausedEntry);
+    if (!pr) return;
+    restoreDraft(pr.draft ?? null);
+    const updated = resumeRun(pausedEntry, pr.id);
+    doc.entries = doc.entries.map(e => e.id === pausedEntry.id ? updated : e);
+    selectedEntryId = pausedEntry.id;
+    if (pausedEntry.plan_step_id) selectedStepId = pausedEntry.plan_step_id;
+    closeResolve();
+    dirty();
+    await executionApi.saveDoc(id, doc);
+  }
+
+  // Scenario 2/3: emergency confirmed — close the interrupted run and transfer
+  // the emergency timing to a step as an in-progress run that started at the
+  // pause point (so timing continues seamlessly). "Emergency already over" is
+  // achieved by completing that run afterwards.
+  async function resolveTransfer() {
+    if (!doc || !pausedEntry || !resolveTarget) return;
+    const pr = pausedRun(pausedEntry);
+    if (!pr) return;
+    const pausedAt = pr.paused_at ?? nowLocalISOWithOffset();
+
+    const originStep = stepForEntry(pausedEntry);
+    const originData = originStep ? collectRunData(originStep, pausedEntry) : {};
+    let entries = doc.entries.map(e => e.id !== pausedEntry.id ? e : {
+      ...e,
+      executions: e.executions.map(r => r.id === pr.id
+        ? { ...r, status: resolveOutcome, completed_at: pausedAt, paused_at: null, draft: null, ...originData }
+        : r),
+    });
+
+    let targetEntry: ExecutionEntry | undefined;
+    if (resolveTarget === "__new_adhoc__") {
+      targetEntry = {
+        id: generateId(),
+        plan_step_id: null,
+        step_title: resolveNewAdhocTitle.trim() || "Emergency",
+        description: null,
+        type: "adhoc",
+        required_executions: 1,
+        executions: [],
+        selected_bindings: { input_conditions: [], collection_items: [], completion_criteria: [] },
+      };
+      entries = [...entries, targetEntry];
+    } else if (resolveTarget.startsWith("step:")) {
+      const stepId = resolveTarget.slice(5);
+      const step = plan ? findNode(plan.root, stepId) : null;
+      targetEntry = entries.find(e => e.type === "planned" && e.plan_step_id === stepId);
+      if (!targetEntry) {
+        targetEntry = {
+          id: generateId(),
+          plan_step_id: stepId,
+          step_title: step?.title || "",
+          type: "planned",
+          required_executions: step?.required_executions || 1,
+          executions: [],
+        };
+        entries = [...entries, targetEntry];
+      }
+    } else if (resolveTarget.startsWith("entry:")) {
+      const eid = resolveTarget.slice(6);
+      targetEntry = entries.find(e => e.id === eid);
+    }
+    if (!targetEntry) return;
+
+    const withRun = startRunAt(targetEntry, pausedAt, resolveNotes.trim() || null);
+    entries = entries.map(e => e.id === targetEntry!.id ? withRun : e);
+
+    doc.entries = entries;
+    resetRunState();
+    selectedEntryId = withRun.id;
+    selectedStepId = withRun.plan_step_id ?? withRun.id;
+    closeResolve();
+    dirty();
+    await executionApi.saveDoc(id, doc);
+  }
+
   async function deleteInputReading(entry: ExecutionEntry, runId: string, index: number) {
     if (!doc) return;
     const run = entry.executions.find(r => r.id === runId);
@@ -437,7 +621,7 @@
 
   async function deleteAdhoc(entry: ExecutionEntry) {
     if (!doc) return;
-    if (entry.executions.some(r => r.status === "in_progress")) return;
+    if (entry.executions.some(r => r.status === "in_progress" || r.status === "paused")) return;
     if (!confirm(`Delete ad-hoc entry "${entry.step_title}"?`)) return;
     doc.entries = doc.entries.filter(e => e.id !== entry.id);
     if (selectedEntryId === entry.id) { selectedEntryId = null; selectedStepId = null; }
@@ -517,12 +701,12 @@
 
   function statusClass(entry: ExecutionEntry): string {
     const s = computeEntryStatus(entry);
-    return { active: "bg-success", completed: "bg-primary", partial: "bg-info", pending: "" }[s] || "";
+    return { active: "bg-success", paused: "bg-warning text-dark", completed: "bg-primary", partial: "bg-info", pending: "" }[s] || "";
   }
 
   function statusLabel(entry: ExecutionEntry): string {
     const s = computeEntryStatus(entry);
-    return { active: "Active", completed: "Done", partial: `${entry.executions.filter(r => r.status==="completed").length}/${entry.required_executions}`, pending: "" }[s] || "";
+    return { active: "Active", paused: "Paused", completed: "Done", partial: `${entry.executions.filter(r => r.status==="completed").length}/${entry.required_executions}`, pending: "" }[s] || "";
   }
 
   // Show the recorded wall clock for offset-stamped times (stable across
@@ -543,11 +727,25 @@
     {#if !doc?.entries?.length}
       <button class="btn btn-sm btn-primary" onclick={handleInit}>Initialize</button>
     {:else}
+      {#if hasRunning}
+        <button class="btn btn-sm btn-warning me-1" onclick={handlePauseRun} title="Pause the active run (emergency timing)">Pause</button>
+      {/if}
       <button class="btn btn-sm btn-outline-info" onclick={() => (showAdhoc = true)}>+ Ad-hoc</button>
       <button class="btn btn-sm btn-outline-primary ms-1" onclick={() => (showSummary = true)}>Summary</button>
       <button class="btn btn-sm btn-outline-success ms-1" onclick={handleExport}>Export</button>
     {/if}
   </div>
+
+  {#if pausedEntry}
+    {@const pPaused = pausedRun(pausedEntry)}
+    <div class="pause-banner">
+      <span class="badge bg-warning text-dark">PAUSED</span>
+      <span>Emergency timing <strong class="elapsed-timer text-warning-emphasis">{formatElapsed(tick)}</strong></span>
+      {#if pPaused}<small class="text-muted">· paused {formatTime(pPaused.paused_at ?? null)}</small>{/if}
+      <span class="flex-grow-1"></span>
+      <button class="btn btn-sm btn-warning" onclick={openResolve}>Resolve</button>
+    </div>
+  {/if}
 
   {#if $execState.loading}
     <div class="p-3">Loading...</div>
@@ -660,6 +858,22 @@
                       <button class="btn btn-success btn-sm" onclick={() => handleCompleteRun(run.id)}>Complete</button>
                       <button class="btn btn-outline-secondary btn-sm" onclick={() => handleSkipRun(run.id)}>Skip</button>
                     </div>
+                  </div>
+                </div>
+              {/if}
+
+              {#if selEntry && !run && pausedRun(selEntry)}
+                {@const pr = pausedRun(selEntry)}
+                <div class="log-run-paused mb-3">
+                  <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                      <div class="d-flex align-items-center gap-2">
+                        <span class="badge bg-warning text-dark">Paused</span>
+                        <strong class="elapsed-timer text-warning-emphasis">{formatElapsed(tick)}</strong>
+                      </div>
+                      <small class="text-muted">Paused {formatTime(pr?.paused_at ?? null)}</small>
+                    </div>
+                    <button class="btn btn-warning btn-sm mt-1" onclick={openResolve}>Resolve</button>
                   </div>
                 </div>
               {/if}
@@ -816,7 +1030,7 @@
                     {@const durMs = runDurationMs(r)}
                     <div class="run-record">
                       <div class="d-flex align-items-center gap-2">
-                        <span class="badge bg-{r.status === 'completed' ? 'success' : r.status === 'skipped' ? 'warning' : 'secondary'}">{r.status}</span>
+                        <span class="badge bg-{r.status === 'completed' ? 'success' : r.status === 'skipped' ? 'warning' : r.status === 'paused' ? 'warning text-dark' : 'secondary'}">{r.status}</span>
                         <small>{formatTime(r.started_at)}{#if r.completed_at} → {formatTime(r.completed_at)}{/if}</small>
                         {#if durMs != null}
                           <small class="text-muted">· {formatSpan(durMs)}</small>
@@ -996,6 +1210,60 @@
     </div></div></div>
   {/if}
 
+  {#if resolveModal}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="modal-backdrop" onclick={closeResolve}></div>
+    <div class="modal d-block" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+      <div class="modal-header bg-warning"><h5 class="modal-title">Resolve Pause</h5><button class="btn-close" onclick={closeResolve}></button></div>
+      <div class="modal-body">
+        {#if pausedEntry}
+          {@const pr = pausedRun(pausedEntry)}
+          <p class="mb-2">Paused run: <strong>{stepForEntry(pausedEntry)?.title ?? pausedEntry.step_title}</strong>{#if pr}<small class="text-muted"> · since {formatTime(pr.paused_at ?? null)}</small>{/if}</p>
+
+          <div class="p-2 mb-3 border rounded bg-light">
+            <p class="small fw-bold mb-1">Situation resolved — resume</p>
+            <p class="text-muted small mb-2">Return to the same run. The pause time counts continuously.</p>
+            <button class="btn btn-success btn-sm" onclick={resolveResume}>Resume</button>
+          </div>
+
+          <div class="p-2 border rounded">
+            <p class="small fw-bold mb-2">Emergency confirmed — transfer &amp; continue timing</p>
+            <div class="mb-2">
+              <label class="form-label small mb-1">Emergency target step</label>
+              <select class="form-select form-select-sm" bind:value={resolveTarget}>
+                <option value="">-- select --</option>
+                {#each resolveTargets as t (t.id)}
+                  <option value={t.id}>{t.label}</option>
+                {/each}
+              </select>
+            </div>
+            {#if resolveTarget === "__new_adhoc__"}
+              <div class="mb-2">
+                <label class="form-label small mb-1">New ad-hoc title</label>
+                <input class="form-control form-control-sm" bind:value={resolveNewAdhocTitle} placeholder="Emergency" />
+              </div>
+            {/if}
+            <div class="mb-2">
+              <label class="form-label small mb-1">Original run outcome</label>
+              <select class="form-select form-select-sm" value={resolveOutcome} onchange={(e) => resolveOutcome = (e.target as HTMLSelectElement).value as "skipped" | "completed"}>
+                <option value="skipped">skipped</option>
+                <option value="completed">completed</option>
+              </select>
+            </div>
+            <div class="mb-2">
+              <label class="form-label small mb-1">Note (optional)</label>
+              <input class="form-control form-control-sm" bind:value={resolveNotes} placeholder="Note for the emergency run" />
+            </div>
+            <button class="btn btn-warning btn-sm" onclick={resolveTransfer} disabled={!resolveTarget}>Confirm &amp; Transfer</button>
+          </div>
+        {/if}
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick={closeResolve}>Cancel</button>
+      </div>
+    </div></div></div>
+  {/if}
+
   {#if showSummary && doc}
     <SummaryModal {plan} {doc} onClose={() => (showSummary = false)} />
   {/if}
@@ -1016,6 +1284,11 @@
   .log-detail-header { padding: 12px; border-bottom: 1px solid #dee2e6; background: #fff; }
   .log-detail-body { padding: 12px; }
   .log-run-active { padding: 8px; background: #d1e7dd; border-radius: 6px; }
+  .log-run-paused { padding: 8px; background: #fff3cd; border-radius: 6px; }
+  .pause-banner {
+    display: flex; align-items: center; gap: 8px; padding: 6px 12px;
+    background: #fff3cd; border-bottom: 1px solid #ffc107; flex-shrink: 0;
+  }
   .elapsed-timer { font-size: 1.3rem; font-variant-numeric: tabular-nums; color: #0f5132; }
   .binding-category { font-size: 0.72rem; font-weight: 600; color: #666; text-transform: uppercase; margin-bottom: 6px; padding-bottom: 2px; border-bottom: 1px solid #eee; }
   .field-blocks { display: flex; flex-wrap: wrap; gap: 6px; }

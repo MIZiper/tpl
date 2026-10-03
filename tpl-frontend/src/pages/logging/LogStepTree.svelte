@@ -57,6 +57,7 @@
     style="padding-left: {10 + depth * 16}px"
     class:selected={selectedEntryId === entry?.id}
     class:active={!!run}
+    class:paused={entry && computeEntryStatus(entry) === "paused"}
     class:completed={entry && !run && computeEntryStatus(entry) === "completed"}
     onclick={() => onStepClick(node.id, entry?.id || null)}
     oncontextmenu={(e) => { e.stopPropagation(); ctxMenu(e, node.id); }}
@@ -86,6 +87,7 @@
   .log-step:hover { background: #e9ecef; }
   .log-step.selected { background: #cfe2ff; border-left-color: #0d6efd; }
   .log-step.active { background: #d1e7dd; border-left-color: #198754; }
+  .log-step.paused { background: #fff3cd; border-left-color: #ffc107; }
   .log-step.completed { background: #f8f9fa; }
   .log-step-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 </style>
