@@ -106,6 +106,7 @@ export function computeEntryStatus(entry: ExecutionEntry): string {
   const paused = execs.some(r => r.status === "paused");
   if (inProgress) return "active";
   if (paused) return "paused";
+  if (entry.required_executions <= 0) return "pending";
   if (completed >= entry.required_executions) return "completed";
   if (completed > 0) return "partial";
   return "pending";

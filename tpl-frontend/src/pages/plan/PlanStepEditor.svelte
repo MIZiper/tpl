@@ -136,7 +136,7 @@
       <input
         type="number"
         class="form-control form-control-sm"
-        min="1"
+        min="0"
         value={node.required_executions}
         oninput={(e) => onupdate({ required_executions: parseNumInt((e.target as HTMLInputElement).value, 1) })}
       />

@@ -39,3 +39,11 @@ export function toLocalNaiveISO(value: string | null | undefined): string {
   if (Number.isNaN(d.getTime())) return v.replace(OFFSET_SUFFIX, "");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
 }
+
+// Compact local wall-clock stamp "YYYYMMDDHHMM" (used for emergency tags).
+export function compactLocalStamp(value: string | null | undefined): string {
+  const v = toLocalNaiveISO(value);
+  const m = v.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (m) return `${m[1]}${m[2]}${m[3]}${m[4]}${m[5]}`;
+  return v.replace(/\D/g, "").slice(0, 12);
+}

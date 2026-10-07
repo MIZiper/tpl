@@ -10,7 +10,7 @@
   import { defUnit } from "../../lib/fieldtypes";
   import { formatDuration } from "../../lib/gantt";
   import { formatElapsed as formatSpan } from "../../lib/signals";
-  import { nowLocalISOWithOffset } from "../../lib/time";
+  import { nowLocalISOWithOffset, compactLocalStamp } from "../../lib/time";
   import type { ExecutionDraft, ExecutionEntry, ExecutionRun } from "../../types/execution";
   import type { PlanNode, PlanFieldDef, FieldBinding } from "../../types/plan";
   import LogStepTree from "./LogStepTree.svelte";
@@ -215,7 +215,7 @@
     duration_minutes: 0,
     changeover_minutes: 0,
     ...adhocBindings,
-    required_executions: 1,
+    required_executions: selEntry?.required_executions ?? 1,
   } as PlanNode : null));
 
   // Build the step node for any entry (planned → plan tree, ad-hoc → bindings).
@@ -230,7 +230,7 @@
       duration_minutes: 0,
       changeover_minutes: 0,
       ...ab,
-      required_executions: entry.required_executions || 1,
+      required_executions: entry.required_executions ?? 1,
     } as PlanNode;
   }
 
@@ -429,7 +429,7 @@
         plan_step_id: stepId,
         step_title: step.title,
         type: "planned",
-        required_executions: step.required_executions || 1,
+        required_executions: step.required_executions ?? 1,
         executions: [],
       };
       doc.entries = [...doc.entries, entry];
@@ -578,13 +578,21 @@
     const pr = pausedRun(pausedEntry);
     if (!pr) return;
     const pausedAt = pr.paused_at ?? nowLocalISOWithOffset();
+    const stamp = compactLocalStamp(pausedAt);
+    const emergencyTag = `emergency #${stamp}`;
+    const skippedTag = `skipped due to emergency #${stamp}`;
 
     const originStep = stepForEntry(pausedEntry);
     const originData = originStep ? collectRunData(originStep, pausedEntry) : {};
     let entries = doc.entries.map(e => e.id !== pausedEntry.id ? e : {
       ...e,
       executions: e.executions.map(r => r.id === pr.id
-        ? { ...r, status: resolveOutcome, completed_at: pausedAt, paused_at: null, draft: null, ...originData }
+        ? {
+            ...r, status: resolveOutcome, completed_at: pausedAt, paused_at: null, draft: null, ...originData,
+            notes: resolveOutcome === "skipped"
+              ? (r.notes ? `${r.notes} | ${skippedTag}` : skippedTag)
+              : r.notes,
+          }
         : r),
     });
 
@@ -596,7 +604,7 @@
         step_title: resolveNewAdhocTitle.trim() || "Emergency",
         description: null,
         type: "adhoc",
-        required_executions: 1,
+        required_executions: 0,
         executions: [],
         selected_bindings: { input_conditions: [], collection_items: [], completion_criteria: [] },
       };
@@ -611,7 +619,7 @@
           plan_step_id: stepId,
           step_title: step?.title || "",
           type: "planned",
-          required_executions: step?.required_executions || 1,
+          required_executions: step?.required_executions ?? 1,
           executions: [],
         };
         entries = [...entries, targetEntry];
@@ -622,7 +630,7 @@
     }
     if (!targetEntry) return;
 
-    const withRun = startRunAt(targetEntry, pausedAt, resolveNotes.trim() || null);
+    const withRun = startRunAt(targetEntry, pausedAt, resolveNotes.trim() ? `${emergencyTag}: ${resolveNotes.trim()}` : emergencyTag);
     entries = entries.map(e => e.id === targetEntry!.id ? withRun : e);
 
     doc.entries = entries;
@@ -674,7 +682,7 @@
       id: ae.id, type: "step", title: ae.step_title, children: [],
       description: ae.description ?? null, duration_minutes: 0, changeover_minutes: 0,
       input_conditions: [], collection_items: [], completion_criteria: [],
-      required_executions: 1,
+      required_executions: ae.required_executions,
       step_template_id: null, solution_step_id: null,
     };
   }

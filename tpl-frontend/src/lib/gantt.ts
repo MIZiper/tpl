@@ -38,7 +38,8 @@ export interface GanttLayout {
 // Estimated span of a single step: (duration + changeover) × executions.
 export function stepSpanMs(step: PlanNode): number {
   const perRun = (Number(step.duration_minutes) || 0) + (Number(step.changeover_minutes) || 0);
-  const reps = Math.max(1, Number(step.required_executions) || 1);
+  const raw = Number(step.required_executions);
+  const reps = Number.isFinite(raw) ? Math.max(0, raw) : 1;
   return perRun * reps * MINUTE;
 }
 
@@ -58,6 +59,9 @@ export function buildPlanRows(root: PlanNode[], startMs: number): GanttLayout {
         walk(node.children, depth + 1);
         rows[index].endMs = cursor;
       } else {
+        const raw = Number(node.required_executions);
+        const reps = Number.isFinite(raw) ? raw : 1;
+        if (reps <= 0) continue;
         const start = cursor;
         const end = cursor + stepSpanMs(node);
         cursor = end;

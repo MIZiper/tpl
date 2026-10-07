@@ -68,9 +68,11 @@ export function buildStepWindows(root: PlanNode[], startMs = 0): StepWindows {
         walk(node.children, depth + 1);
         continue;
       }
+      const raw = Number(node.required_executions);
+      const reps = Number.isFinite(raw) ? Math.max(0, raw) : 1;
+      if (reps <= 0) continue;
       const dur = Math.max(0, Number(node.duration_minutes) || 0) * MINUTE;
       const chg = Math.max(0, Number(node.changeover_minutes) || 0) * MINUTE;
-      const reps = Math.max(1, Number(node.required_executions) || 1);
       const per = dur + chg;
       const stepStart = cursor;
       const executions: StepExecutionWindow[] = [];
