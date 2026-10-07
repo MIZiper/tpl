@@ -801,6 +801,7 @@
             plan={plan}
             doc={doc}
             {selectedEntryId}
+            {selectedStepId}
             {ctxMenu}
             entryForStep={entryForStep}
             onStepClick={(sid, eid) => { selectedStepId = sid; selectedEntryId = eid; }}
@@ -820,6 +821,7 @@
               plan={plan}
               doc={doc}
               {selectedEntryId}
+              {selectedStepId}
               ctxMenu={() => {}}
               entryForStep={(sid: string) => doc?.entries.find(e => e.id === sid && e.type === "adhoc")}
               onStepClick={(sid, eid) => { selectedStepId = sid; selectedEntryId = eid; }}

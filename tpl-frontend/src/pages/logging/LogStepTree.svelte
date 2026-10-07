@@ -8,6 +8,7 @@
     plan,
     doc,
     selectedEntryId,
+    selectedStepId,
     ctxMenu,
     entryForStep,
     onStepClick,
@@ -20,6 +21,7 @@
     plan: PlanDocument;
     doc: ExecutionDoc | null;
     selectedEntryId: string | null;
+    selectedStepId: string | null;
     ctxMenu: (e: MouseEvent, stepId: string) => void;
     entryForStep: (stepId: string) => ExecutionEntry | undefined;
     onStepClick: (stepId: string, entryId: string | null) => void;
@@ -40,6 +42,7 @@
       {plan}
       {doc}
       {selectedEntryId}
+      {selectedStepId}
       {ctxMenu}
       {entryForStep}
       {onStepClick}
@@ -52,10 +55,11 @@
 {:else if node.type === "step"}
   {@const entry = entryForStep(node.id)}
   {@const run = entry ? activeRun(entry) : undefined}
+  {@const isSelected = selectedStepId === node.id || selectedEntryId === entry?.id}
   <div
     class="log-step"
     style="padding-left: {10 + depth * 16}px"
-    class:selected={selectedEntryId === entry?.id}
+    class:selected={isSelected}
     class:active={!!run}
     class:paused={entry && computeEntryStatus(entry) === "paused"}
     class:completed={entry && !run && computeEntryStatus(entry) === "completed"}
@@ -85,9 +89,10 @@
     border-left: 3px solid transparent;
   }
   .log-step:hover { background: #e9ecef; }
-  .log-step.selected { background: #cfe2ff; border-left-color: #0d6efd; }
-  .log-step.active { background: #d1e7dd; border-left-color: #198754; }
-  .log-step.paused { background: #fff3cd; border-left-color: #ffc107; }
+  .log-step.active { background: #d1e7dd; }
+  .log-step.paused { background: #fff3cd; }
   .log-step.completed { background: #f8f9fa; }
+  .log-step.selected { border-left-color: #0d6efd; }
+  .log-step.selected:not(.active):not(.paused):not(.completed) { background: #cfe2ff; }
   .log-step-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 </style>
