@@ -32,8 +32,9 @@
 					"DATABASE_URL": "postgresql://postgres:password@localhost:5437/tpl",
                     "POSTGRES_PORT": "5437",
                     "KEYCLOAK_URL": "http://localhost:8080",
-                    "KEYCLOAK_REALM": "miz",
-                    "KEYCLOAK_CLIENT_ID": "tpl-frontend",
+                    "KEYCLOAK_URL_PUBLIC": "http://localhost:8080",
+                    "KEYCLOAK_REALM": "master",
+                    "KEYCLOAK_CLIENT_ID": "miz",
                     "KEYCLOAK_CLIENT_SECRET": "",
                 }
             }

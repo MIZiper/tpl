@@ -4,8 +4,8 @@ Monorepo containing two independent web applications, each with a FastAPI backen
 
 | App | Backend | Frontend | Database | Port | Purpose |
 |-----|---------|----------|----------|------|---------|
-| **TPL** | `tpl-backend/` | `tpl-frontend/` | `tpl` | 8000 / 5173 | Test planner & logger: `plan_document` + `execution_document` stored as JSON documents |
-| **RSP** | `rsp-backend/` | `rsp-frontend/` | `rsp` | 8001 / 5174 | Risk / Solution / Project management with FMEA (RPN, effectiveness, lessons learned) |
+| **TPL** | `tpl-backend/` | `tpl-frontend/` | `tpl` | 8037 / 5137 | Test planner & logger: `plan_document` + `execution_document` stored as JSON documents |
+| **RSP** | `rsp-backend/` | `rsp-frontend/` | `rsp` | 8039 / 5139 | Risk / Solution / Project management with FMEA (RPN, effectiveness, lessons learned) |
 
 Both backends use **uv**, both frontends use **pnpm**, and both share one PostgreSQL instance with two separate databases.
 
@@ -28,12 +28,12 @@ tpl/
 ./scripts/setup-db.sh
 
 # 2. TPL document app
-cd tpl-backend && uv run uvicorn tpl.main:app --port 8000
-cd tpl-frontend && pnpm dev          # http://localhost:5173
+cd tpl-backend && uv run uvicorn tpl.main:app --port 8037
+cd tpl-frontend && VITE_API_PORT=8037 pnpm dev --port 5137   # http://localhost:5137
 
-# 3. RSP risk app
-cd rsp-backend && uv run uvicorn rsp_backend.main:app --port 8001
-cd rsp-frontend && pnpm dev          # http://localhost:5174
+# 3. RSP risk app (deferred)
+cd rsp-backend && uv run uvicorn rsp_backend.main:app --port 8039
+cd rsp-frontend && VITE_API_PORT=8039 pnpm dev --port 5139   # http://localhost:5139
 ```
 
 > Local testing: unset the squid proxy first: `unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY`

@@ -55,7 +55,7 @@ tpl/
 └── doc/                      # design docs
 ```
 
-Ports: tpl-backend `8000`, rsp-backend `8001`, tpl-frontend dev `5173`, rsp-frontend dev `5174`.
+Ports (fixed by `.vscode/tasks.json`): tpl PostgreSQL `5437`, tpl-backend `8037`, tpl-frontend dev `5137`; RSP (deferred) PostgreSQL `5439`, rsp-backend `8039`, rsp-frontend dev `5139`.
 
 ---
 
@@ -128,12 +128,12 @@ Coverage: `coverage_rate` = covered / total project_risks, where covered = `cove
 
 ```bash
 # 1. Start both backends
-cd tpl-backend && uv run uvicorn tpl.main:app --port 8000
-cd rsp-backend && uv run uvicorn rsp_backend.main:app --port 8001
+cd tpl-backend && uv run uvicorn tpl.main:app --port 8037
+cd rsp-backend && uv run uvicorn rsp_backend.main:app --port 8039
 
 # 2. Optionally start frontends
-cd tpl-frontend && pnpm dev
-cd rsp-frontend && pnpm dev
+cd tpl-frontend && VITE_API_PORT=8037 pnpm dev --port 5137
+cd rsp-frontend && VITE_API_PORT=8039 pnpm dev --port 5139
 
 # 3. Run integration tests
 python3 scripts/test-integration.py
