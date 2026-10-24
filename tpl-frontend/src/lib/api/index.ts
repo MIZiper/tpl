@@ -18,6 +18,24 @@ export const planApi = {
     api.put<void>(`/api/documents/${id}/plan-document`, { document }),
 };
 
+export const externalLinksApi = {
+  get: (id: string, part: "plan" | "log") =>
+    api.get<{ linked: boolean; link: any | null; reachable: boolean }>(
+      `/api/documents/${id}/parts/${part}/external-link`,
+    ),
+  candidates: (id: string, part: "plan" | "log", q = "") =>
+    api.get<{ items: any[] }>(
+      `/api/documents/${id}/parts/${part}/external-link/candidates?q=${encodeURIComponent(q)}`,
+    ),
+  link: (id: string, part: "plan" | "log", external_id: string) =>
+    api.put<{ linked: boolean; link: any }>(
+      `/api/documents/${id}/parts/${part}/external-link`,
+      { external_id },
+    ),
+  unlink: (id: string, part: "plan" | "log") =>
+    api.delete<void>(`/api/documents/${id}/parts/${part}/external-link`),
+};
+
 export const executionApi = {
   getDoc: (id: string) => api.get<ExecutionDoc>(`/api/documents/${id}/execution-document`),
   saveDoc: (id: string, document: ExecutionDoc) =>

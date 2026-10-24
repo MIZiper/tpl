@@ -16,6 +16,18 @@ uv run uvicorn tpl.main:app --host 127.0.0.1 --port 8000
 
 Config via env: `DATABASE_URL` (default `postgresql://postgres:password@localhost:5432/tpl`).
 
+Keycloak: `KEYCLOAK_URL` / `KEYCLOAK_URL_PUBLIC` / `KEYCLOAK_REALM` / `KEYCLOAK_CLIENT_ID`
+(local default: realm `master`, client `miz`). Permissions use TC role names:
+`nodes:create` / `nodes:edit_any` / `tap:admin`. The creator can edit/delete their own
+document; `nodes:edit_any` and `tap:admin` can edit/delete any. Documents without a
+creator are editable by any logged-in user and deletable only by `tap:admin`.
+With Keycloak disabled, anonymous local use is unchanged.
+
+External TC links: `EXTERNAL_SYSTEM`, `EXTERNAL_SYSTEM_URL`, `EXTERNAL_SYSTEM_UI_URL`,
+`EXTERNAL_FROZEN_STATUSES`, `PUBLIC_BASE_URL`. `plan` and `log` links are stored in
+`plan_external_link` / `log_external_link`; linked status is TC-owned and a status in
+the frozen set makes the corresponding save endpoint return 423.
+
 ## Structure
 
 ```
@@ -44,6 +56,8 @@ tpl-backend/
 | id | UUID PK | gen_random_uuid() |
 | name | VARCHAR(255) | |
 | description | TEXT | |
+| plan_external_link / log_external_link | JSONB | TC link + status cache |
+| creator_sub / creator_name | VARCHAR | link ownership |
 | plan_document | JSONB | PlanDocument |
 | execution_document | JSONB | ExecutionDoc |
 | created_at / updated_at | TIMESTAMPTZ | |
@@ -53,6 +67,8 @@ tpl-backend/
 ```
 GET/POST           /api/documents
 GET/PUT/DELETE     /api/documents/{id}
+GET/PUT/DELETE     /api/documents/{id}/parts/{plan|log}/external-link
+GET                /api/documents/{id}/parts/{plan|log}/external-link/candidates
 GET/PUT            /api/documents/{id}/plan-document
 GET/PUT            /api/documents/{id}/execution-document
 POST               /api/documents/{id}/execution-document/initialize

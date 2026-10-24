@@ -31,6 +31,7 @@
   import { generateId, outputsOf, orderedInputDefs } from "../../lib/plan-utils";
   import { positionMenu } from "../../lib/flip-menu";
   import DocumentNav from "../../components/DocumentNav.svelte";
+  import ExternalLinkPanel from "../../components/ExternalLinkPanel.svelte";
   import type {
     PlanNode,
     PlanDocument,
@@ -57,6 +58,8 @@
   let structParamValues = $state<Record<string, unknown>>({});
   let newTemplateName = $state("");
   let showInputLayout = $state(false);
+
+  let planFrozen = $state(false);
 
   let showTransformForm = $state(false);
   let editingTransformId = $state<string | null>(null);
@@ -348,24 +351,28 @@
 
 <div class="plan-editor">
   <div class="plan-toolbar">
-    <a href={p("/documents/:id", { params: { id } })} class="btn btn-sm btn-outline-secondary">Back</a>
+    <a href={p("/documents")} class="btn btn-sm btn-outline-secondary">Back</a>
     <DocumentNav {id} current="plan" />
     <button
       class="btn btn-sm btn-outline-primary"
       onclick={() => (showInputLayout = true)}
-      disabled={!$planState.document || $planState.document.definitions.input_conditions.length === 0}
+      disabled={planFrozen || !$planState.document || $planState.document.definitions.input_conditions.length === 0}
       title="Edit the global Input order and width with a live preview"
     >Input layout</button>
     <span class="flex-grow-1"></span>
     {#if $planState.dirty}
-      <button class="btn btn-sm btn-success" onclick={() => saveDoc(id, planApi.saveDocument)}>Save *</button>
+      <button class="btn btn-sm btn-success" disabled={planFrozen} onclick={() => saveDoc(id, planApi.saveDocument)}>Save *</button>
     {/if}
     {#if $planState.document}
       <button class="btn btn-sm btn-outline-success ms-1" onclick={exportJSON}>Export</button>
     {/if}
-    <label class="btn btn-sm btn-outline-info ms-1">Import<input type="file" accept=".json" class="d-none" onchange={handleImport} /></label>
+    <label class="btn btn-sm btn-outline-info ms-1 {planFrozen ? 'disabled' : ''}">Import<input type="file" accept=".json" class="d-none" disabled={planFrozen} onchange={handleImport} /></label>
   </div>
 
+  <ExternalLinkPanel documentId={id} part="plan" onchange={(s) => (planFrozen = s.frozen)} />
+  {#if planFrozen}
+    <div class="alert alert-warning m-2 py-2">The plan is read-only because its TC status is frozen.</div>
+  {/if}
   {#if $planState.loading}
     <div class="p-3">Loading...</div>
   {:else if $planState.error}

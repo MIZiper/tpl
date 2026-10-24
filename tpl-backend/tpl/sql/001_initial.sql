@@ -7,6 +7,10 @@ CREATE TABLE documents (
     description TEXT,
     plan_document JSONB,
     execution_document JSONB,
+    plan_external_link JSONB,
+    log_external_link JSONB,
+    creator_sub VARCHAR(255),
+    creator_name VARCHAR(255),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

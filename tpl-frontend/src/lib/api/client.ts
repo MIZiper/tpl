@@ -1,3 +1,5 @@
+import { getToken } from "../auth";
+
 const API_BASE = "";
 
 interface RequestOptions {
@@ -18,10 +20,12 @@ class ApiError extends Error {
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = "GET", body, headers = {} } = options;
 
+  const token = await getToken();
   const config: RequestInit = {
     method,
     headers: {
       "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...headers,
     },
   };
@@ -33,7 +37,15 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   const response = await fetch(`${API_BASE}${path}`, config);
 
   if (!response.ok) {
-    const message = await response.text().catch(() => response.statusText);
+    const text = await response.text().catch(() => response.statusText);
+    let message = text || response.statusText;
+    try {
+      const body = JSON.parse(text);
+      if (typeof body?.detail === "string") message = body.detail;
+      else if (body?.detail) message = JSON.stringify(body.detail);
+    } catch {
+      /* response was not JSON */
+    }
     throw new ApiError(message, response.status);
   }
 

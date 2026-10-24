@@ -2,29 +2,56 @@
   import { onMount } from "svelte";
   import { p } from "../../router";
   import { documentStore } from "../../stores/documents";
+  import { auth, login } from "../../lib/auth";
+  import { canCreate, canDelete, canEdit, TPL_CREATE_ROLE } from "../../lib/permissions";
+  import type { Document } from "../../types/document";
 
-  let documents = $state<{ id: string; name: string; description: string | null }[]>([]);
+  let documents = $state<Document[]>([]);
   let loading = $state(true);
+  let error = $state<string | null>(null);
 
   onMount(() => {
-    documentStore.load().then(() => {
-      return documentStore.subscribe((s) => {
-        documents = s.items;
-        loading = s.loading;
-      });
+    const unsubscribe = documentStore.subscribe((s) => {
+      documents = s.items;
+      loading = s.loading;
+      error = s.error;
     });
+    documentStore.load();
+    return unsubscribe;
   });
 
-  async function remove(id: string) {
-    await documentStore.remove(id);
+  async function remove(document: Document) {
+    if (!confirm(`Delete "${document.name}"?`)) return;
+    await documentStore.remove(document.id);
   }
 </script>
 
 <div>
   <div class="d-flex justify-content-between align-items-center mb-3">
     <h2>Documents</h2>
-    <a href={p("/documents/new")} class="btn btn-primary">+ New Document</a>
+    {#if !$auth.enabled || canCreate($auth)}
+      <a href={p("/documents/new")} class="btn btn-primary">+ New Document</a>
+    {:else if !$auth.authenticated}
+      <button class="btn btn-primary" onclick={login}>Login to create</button>
+    {:else}
+      <button
+        class="btn btn-primary"
+        disabled
+        title={`Requires the ${TPL_CREATE_ROLE} role`}
+      >+ New Document</button>
+    {/if}
   </div>
+
+  {#if $auth.enabled && $auth.authenticated && !canCreate($auth)}
+    <div class="alert alert-warning py-2">
+      You do not have permission to create documents. Ask an administrator for the
+      <code>{TPL_CREATE_ROLE}</code> role.
+    </div>
+  {/if}
+
+  {#if error}
+    <div class="alert alert-danger py-2">{error}</div>
+  {/if}
 
   {#if loading}
     <p>Loading...</p>
@@ -38,6 +65,21 @@
             <div class="card-body">
               <h5 class="card-title">{document.name}</h5>
               <p class="card-text text-muted">{document.description || ""}</p>
+              <p class="card-text text-muted small mb-2">
+                Created by {document.creator_name || "Unknown"}
+              </p>
+              <div class="mb-2 d-flex gap-1 flex-wrap">
+                {#if document.plan_external_link}
+                  <a class="badge text-bg-secondary text-decoration-none" href={document.plan_external_link.external_url} target="_blank" rel="noreferrer">
+                    Plan TC: {document.plan_external_link.status}{document.plan_external_link.frozen ? " (locked)" : ""}
+                  </a>
+                {/if}
+                {#if document.log_external_link}
+                  <a class="badge text-bg-secondary text-decoration-none" href={document.log_external_link.external_url} target="_blank" rel="noreferrer">
+                    Log TC: {document.log_external_link.status}{document.log_external_link.frozen ? " (locked)" : ""}
+                  </a>
+                {/if}
+              </div>
               <div class="btn-group">
                 <a
                   href={p("/documents/:id/plan", { params: { id: document.id } })}
@@ -63,15 +105,19 @@
                 >
                   Signals
                 </a>
-                <a
-                  href={p("/documents/:id", { params: { id: document.id } })}
-                  class="btn btn-sm btn-outline-primary"
-                >
-                  Edit
-                </a>
-                <button class="btn btn-sm btn-outline-danger" onclick={() => remove(document.id)}>
-                  Delete
-                </button>
+                {#if canEdit(document, $auth)}
+                  <a
+                    href={p("/documents/:id", { params: { id: document.id } })}
+                    class="btn btn-sm btn-outline-primary"
+                  >
+                    Edit
+                  </a>
+                {/if}
+                {#if canDelete(document, $auth)}
+                  <button class="btn btn-sm btn-outline-danger" onclick={() => remove(document)}>
+                    Delete
+                  </button>
+                {/if}
               </div>
             </div>
           </div>

@@ -221,7 +221,7 @@
 
 <div class="container-fluid">
   <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
-    <a href={p("/documents/:id", { params: { id } })} class="btn btn-sm btn-outline-secondary">Back</a>
+    <a href={p("/documents")} class="btn btn-sm btn-outline-secondary">Back</a>
     <DocumentNav {id} />
     <span class="fw-semibold ms-2">{doc?.name ?? "Document"}</span>
     {#if anyDirty}

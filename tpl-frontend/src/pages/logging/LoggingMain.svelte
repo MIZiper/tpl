@@ -16,9 +16,11 @@
   import LogStepTree from "./LogStepTree.svelte";
   import SummaryModal from "./SummaryModal.svelte";
   import DocumentNav from "../../components/DocumentNav.svelte";
+  import ExternalLinkPanel from "../../components/ExternalLinkPanel.svelte";
 
   let id: string = $derived(route.params.id ?? "");
 
+  let logFrozen = $state(false);
   let selectedStepId = $state<string | null>(null);
   let selectedEntryId = $state<string | null>(null);
   let contextMenu = $state<{ x: number; y: number; stepId: string; parentGroupId: string | null } | null>(null);
@@ -758,20 +760,25 @@
 
 <div class="log-editor">
   <div class="log-toolbar">
-    <a href={p("/documents/:id", { params: { id } })} class="btn btn-sm btn-outline-secondary">Back</a>
+    <a href={p("/documents")} class="btn btn-sm btn-outline-secondary">Back</a>
     <DocumentNav {id} current="logging" />
     <span class="flex-grow-1"></span>
     {#if !doc?.entries?.length}
-      <button class="btn btn-sm btn-primary" onclick={handleInit}>Initialize</button>
+      <button class="btn btn-sm btn-primary" disabled={logFrozen} onclick={handleInit}>Initialize</button>
     {:else}
       {#if hasRunning}
         <button class="btn btn-sm btn-warning me-1" onclick={handlePauseRun} title="Pause the active run (emergency timing)">Pause</button>
       {/if}
-      <button class="btn btn-sm btn-outline-info" onclick={() => (showAdhoc = true)}>+ Ad-hoc</button>
+      <button class="btn btn-sm btn-outline-info" disabled={logFrozen} onclick={() => (showAdhoc = true)}>+ Ad-hoc</button>
       <button class="btn btn-sm btn-outline-primary ms-1" onclick={() => (showSummary = true)}>Summary</button>
       <button class="btn btn-sm btn-outline-success ms-1" onclick={handleExport}>Export</button>
     {/if}
   </div>
+
+  <ExternalLinkPanel documentId={id} part="log" onchange={(s) => (logFrozen = s.frozen)} />
+  {#if logFrozen}
+    <div class="alert alert-warning m-2 py-2">Execution logging is read-only because its TC status is frozen.</div>
+  {/if}
 
   {#if pausedEntry}
     {@const pPaused = pausedRun(pausedEntry)}

@@ -25,6 +25,10 @@ class Document(DocumentBase):
     id: str
     created_at: datetime
     updated_at: datetime
+    plan_external_link: dict[str, Any] | None = None
+    log_external_link: dict[str, Any] | None = None
+    creator_sub: str | None = None
+    creator_name: str | None = None
 
     model_config = {"from_attributes": True}
 

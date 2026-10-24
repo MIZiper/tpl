@@ -88,7 +88,7 @@
 
 <div class="gantt-page">
   <div class="gantt-toolbar">
-    <a href={p("/documents/:id", { params: { id } })} class="btn btn-sm btn-outline-secondary">Back</a>
+    <a href={p("/documents")} class="btn btn-sm btn-outline-secondary">Back</a>
     <DocumentNav {id} current="gantt" />
     <ul class="nav nav-pills nav-sm ms-2">
       <li class="nav-item">

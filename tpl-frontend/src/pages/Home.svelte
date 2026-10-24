@@ -3,7 +3,7 @@
   import { onMount } from "svelte";
   import { documentStore } from "../stores/documents";
 
-  let documents = $state<{ id: string; name: string; description: string | null }[]>([]);
+  let documents = $state<{ id: string; name: string; description: string | null; creator_name?: string | null }[]>([]);
 
   onMount(() => {
     documentStore.load().then(() => {
@@ -39,6 +39,9 @@
             <div class="card-body">
               <h5 class="card-title">{document.name}</h5>
               <p class="card-text text-muted">{document.description || ""}</p>
+              <p class="card-text text-muted small mb-2">
+                Created by {document.creator_name || "Unknown"}
+              </p>
               <div class="btn-group">
                 <a
                   href={p("/documents/:id/plan", { params: { id: document.id } })}

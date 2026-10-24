@@ -72,7 +72,7 @@
 
 <div class="signals-page">
   <div class="signals-toolbar">
-    <a href={p("/documents/:id", { params: { id } })} class="btn btn-sm btn-outline-secondary">Back</a>
+    <a href={p("/documents")} class="btn btn-sm btn-outline-secondary">Back</a>
     <DocumentNav {id} current="signals" />
     <span class="signals-title ms-3">Input Signals</span>
     <span class="flex-grow-1"></span>
