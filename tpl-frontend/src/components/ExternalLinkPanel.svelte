@@ -119,8 +119,11 @@
 
   {#if pickerOpen && !link}
     <div class="mt-2">
+      <p class="small text-muted mb-2">
+        Create a <strong>Source Item</strong> in TC first, then select it here.
+      </p>
       <div class="d-flex gap-2">
-        <Input placeholder="Search TC nodes" bind:value={query} onkeydown={(e) => { if (e.key === "Enter") search(); }} />
+        <Input placeholder="Search unlinked TC Source Items" bind:value={query} onkeydown={(e) => { if (e.key === "Enter") search(); }} />
         <Button color="secondary" onclick={search} disabled={loading}>Search</Button>
       </div>
       <div class="d-flex gap-2 mt-2">

@@ -46,7 +46,11 @@ def _link_from_state(state: dict) -> dict:
         "status": state.get("status") or "draft",
         "status_updated_at": state.get("updated_at"),
         "checked_at": now,
-        "frozen": external.is_frozen(state.get("status")),
+        "frozen": (
+            bool(state.get("frozen"))
+            if "frozen" in state
+            else external.is_frozen(state.get("status"))
+        ),
     }
 
 
@@ -302,10 +306,25 @@ async def link_external(
     token = _token(request)
     try:
         state = await external.get_state(token, external_id)
-        if state.get("data_type") != expected_type:
+        if (
+            bool(state.get("frozen"))
+            if "frozen" in state
+            else external.is_frozen(state.get("status"))
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_423_LOCKED,
+                detail="External node is frozen and cannot be linked",
+            )
+        if not (
+            state.get("source_item")
+            or state.get("data_type") == expected_type
+        ):
             raise HTTPException(
                 status_code=400,
-                detail=f"External node must be of type {expected_type}",
+                detail=(
+                    "External node must be an unlinked Source Item or "
+                    f"of type {expected_type}"
+                ),
             )
         if state.get("source_system") and not (
             state.get("source_system") == "tpl"

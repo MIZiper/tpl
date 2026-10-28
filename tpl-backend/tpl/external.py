@@ -86,6 +86,7 @@ async def attach_source(
             "source_id": document_id,
             "source_part": part,
             "source_url": source_url(document_id, part),
+            "data_type": "tpl.log" if part == "log" else "tpl.plan",
         },
     )
 
@@ -99,14 +100,19 @@ async def query_candidates(
 ) -> list[dict]:
     content_type = "tpl.log" if part == "log" else "tpl.plan"
     data = await _request(
-        "POST",
-        "/api/nodes/query",
+        "GET",
+        "/api/nodes/source-candidates",
         token,
-        json={
-            "text": text or None,
-            "types": [content_type],
-            "page": 1,
+        params={
+            "source_system": "tpl",
+            "q": text or "",
             "page_size": page_size,
         },
     )
-    return data.get("items", []) if isinstance(data, dict) else []
+    items = data.get("items", []) if isinstance(data, dict) else []
+    # A plan picker must not offer an unlinked log node (and vice versa).
+    return [
+        item
+        for item in items
+        if item.get("source_item") or item.get("data_type") == content_type
+    ]
