@@ -60,6 +60,7 @@
   let showInputLayout = $state(false);
 
   let planFrozen = $state(false);
+  let planReachable = $state(true);
 
   let showTransformForm = $state(false);
   let editingTransformId = $state<string | null>(null);
@@ -369,9 +370,15 @@
     <label class="btn btn-sm btn-outline-info ms-1 {planFrozen ? 'disabled' : ''}">Import<input type="file" accept=".json" class="d-none" disabled={planFrozen} onchange={handleImport} /></label>
   </div>
 
-  <ExternalLinkPanel documentId={id} part="plan" onchange={(s) => (planFrozen = s.frozen)} />
+  <ExternalLinkPanel documentId={id} part="plan" onchange={(s) => { planFrozen = s.frozen; planReachable = s.reachable; }} />
   {#if planFrozen}
-    <div class="alert alert-warning m-2 py-2">The plan is read-only because its TC status is frozen.</div>
+    <div class="alert alert-warning m-2 py-2">
+      {#if planReachable}
+        The plan is read-only because its TC status is frozen.
+      {:else}
+        The plan is read-only because its TC state is unavailable.
+      {/if}
+    </div>
   {/if}
   {#if $planState.loading}
     <div class="p-3">Loading...</div>

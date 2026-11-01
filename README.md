@@ -40,7 +40,7 @@ cd rsp-frontend && VITE_API_PORT=8039 pnpm dev --port 5139   # http://localhost:
 
 ## TC links and frozen state
 
-TPL can link a document's `plan` and `log` separately to existing TC nodes (`tpl.plan` / `tpl.log`). TC owns the published title, description, tags and status. When the TC status is in `EXTERNAL_FROZEN_STATUSES` (`pending_review,published,archived` by default), the corresponding TPL save endpoints are locked; `draft` remains editable. Linked parts fail closed if the external status cannot be verified. Keycloak (`KEYCLOAK_*`, realm `master`, client `miz`) is used for authorization. Permissions use TC role names: `nodes:create` to create documents, `nodes:edit_any` / `tap:admin` to edit or delete any document, and the creator for their own documents.
+TPL can link a document's `plan` and `log` separately to existing TC nodes (`tpl.plan` / `tpl.log`). TC owns the published title, description, tags and status; TPL stores only the link identity (provider, external id, URL) and fetches status live on read. When the TC status is in `EXTERNAL_FROZEN_STATUSES` (`pending_review,published,archived` by default), the corresponding TPL save endpoints are locked; `draft` remains editable. Linked parts fail closed if the external status cannot be verified: they show `state unavailable`, become read-only, and cannot be unlinked. Keycloak (`KEYCLOAK_*`, realm `master`, client `miz`) is used for authorization. Permissions use TC role names: `nodes:create` to create documents, `nodes:edit_any` / `tap:admin` to edit or delete any document, and the creator for their own documents.
 
 ## Integration test
 

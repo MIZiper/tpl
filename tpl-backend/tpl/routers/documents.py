@@ -54,6 +54,33 @@ def _link_from_state(state: dict) -> dict:
     }
 
 
+def _link_identity(link: dict | None) -> dict | None:
+    """Persisted part of a link: identity only, never external status.
+
+    Status is looked up live; caching a snapshot would let a stale value
+    unlock a part whose external state is unknown.
+    """
+    if not link or not link.get("external_id"):
+        return None
+    external_id = str(link["external_id"])
+    return {
+        "provider": link.get("provider") or config.external_system,
+        "external_id": external_id,
+        "external_url": link.get("external_url") or external.external_url(external_id),
+    }
+
+
+def _link_with_state(link: dict | None, states: dict[str, dict | None]) -> dict | None:
+    """Merge a stored link with live external state (or mark it unreachable)."""
+    identity = _link_identity(link)
+    if identity is None:
+        return None
+    state = states.get(identity["external_id"])
+    if state is None:
+        return {**identity, "reachable": False}
+    return {**_link_from_state(state), "reachable": True}
+
+
 def _raise_external(exc: external.ExternalError) -> None:
     if exc.status_code in (401, 403, 404):
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
@@ -94,9 +121,34 @@ async def auth_config():
     return get_auth_config()
 
 
+async def _with_live_links(
+    documents: list[Document], token: str | None
+) -> list[Document]:
+    """Refresh both parts of every document with live external state."""
+    external_ids = [
+        str(link["external_id"])
+        for document in documents
+        for link in (document.plan_external_link, document.log_external_link)
+        if link and link.get("external_id")
+    ]
+    states = await external.get_states(token, external_ids) if external_ids else {}
+    for document in documents:
+        document.plan_external_link = _link_with_state(
+            document.plan_external_link, states
+        )
+        document.log_external_link = _link_with_state(
+            document.log_external_link, states
+        )
+    return documents
+
+
 @router.get("/documents", response_model=list[Document])
-async def list_documents(db: Connection = Depends(get_connection)):
-    return await documents_service.list_documents(db)
+async def list_documents(
+    request: Request,
+    db: Connection = Depends(get_connection),
+):
+    documents = await documents_service.list_documents(db)
+    return await _with_live_links(documents, _token(request))
 
 
 @router.post("/documents", response_model=Document, status_code=201)
@@ -113,8 +165,13 @@ async def create_document(
 
 
 @router.get("/documents/{document_id}", response_model=Document)
-async def get_document(document_id: str, db: Connection = Depends(get_connection)):
-    return await _get_document_or_404(db, document_id)
+async def get_document(
+    document_id: str,
+    request: Request,
+    db: Connection = Depends(get_connection),
+):
+    document = await _get_document_or_404(db, document_id)
+    return (await _with_live_links([document], _token(request)))[0]
 
 
 @router.put("/documents/{document_id}", response_model=Document)
@@ -133,7 +190,7 @@ async def update_document(
     updated = await documents_service.update_document(db, document_id, body)
     if updated is None:
         raise HTTPException(status_code=404, detail="Document not found")
-    return updated
+    return (await _with_live_links([updated], token))[0]
 
 
 @router.delete("/documents/{document_id}", status_code=204)
@@ -255,7 +312,7 @@ async def get_external_link(
     try:
         state = await external.get_state(_token(request), link["external_id"])
     except external.ExternalError:
-        return {"linked": True, "link": link, "reachable": False}
+        return {"linked": True, "link": _link_identity(link), "reachable": False}
     refreshed = _link_from_state(state)
     return {"linked": True, "link": refreshed, "reachable": True}
 
@@ -341,7 +398,9 @@ async def link_external(
 
     link = _link_from_state(state)
     try:
-        await documents_service.set_external_link(db, document_id, part, link)
+        await documents_service.set_external_link(
+            db, document_id, part, _link_identity(link)
+        )
     except Exception:
         try:
             await external.detach_source(token, external_id)

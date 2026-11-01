@@ -14,10 +14,11 @@ export interface ExternalLink {
   provider: string;
   external_id: string;
   external_url: string;
-  status: string;
+  status?: string | null;
   status_updated_at?: string | null;
   checked_at?: string | null;
   frozen: boolean;
+  reachable?: boolean;
 }
 
 /** Stored JSONB documents exactly as they are in the database (unvalidated). */

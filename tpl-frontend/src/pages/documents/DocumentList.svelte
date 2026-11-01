@@ -70,14 +70,22 @@
               </p>
               <div class="mb-2 d-flex gap-1 flex-wrap">
                 {#if document.plan_external_link}
-                  <a class="badge text-bg-secondary text-decoration-none" href={document.plan_external_link.external_url} target="_blank" rel="noreferrer">
-                    Plan TC: {document.plan_external_link.status}{document.plan_external_link.frozen ? " (locked)" : ""}
-                  </a>
+                  {#if document.plan_external_link.reachable === false || !document.plan_external_link.status}
+                    <span class="badge text-bg-danger">Plan TC: state unavailable</span>
+                  {:else}
+                    <a class="badge text-bg-secondary text-decoration-none" href={document.plan_external_link.external_url} target="_blank" rel="noreferrer">
+                      Plan TC: {document.plan_external_link.status}{document.plan_external_link.frozen ? " (locked)" : ""}
+                    </a>
+                  {/if}
                 {/if}
                 {#if document.log_external_link}
-                  <a class="badge text-bg-secondary text-decoration-none" href={document.log_external_link.external_url} target="_blank" rel="noreferrer">
-                    Log TC: {document.log_external_link.status}{document.log_external_link.frozen ? " (locked)" : ""}
-                  </a>
+                  {#if document.log_external_link.reachable === false || !document.log_external_link.status}
+                    <span class="badge text-bg-danger">Log TC: state unavailable</span>
+                  {:else}
+                    <a class="badge text-bg-secondary text-decoration-none" href={document.log_external_link.external_url} target="_blank" rel="noreferrer">
+                      Log TC: {document.log_external_link.status}{document.log_external_link.frozen ? " (locked)" : ""}
+                    </a>
+                  {/if}
                 {/if}
               </div>
               <div class="btn-group">

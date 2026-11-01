@@ -10,7 +10,13 @@
   }: {
     documentId: string;
     part: "plan" | "log";
-    onchange?: (state: { linked: boolean; frozen: boolean; status?: string; url?: string }) => void;
+    onchange?: (state: {
+      linked: boolean;
+      frozen: boolean;
+      reachable: boolean;
+      status?: string;
+      url?: string;
+    }) => void;
   } = $props();
 
   let link = $state<ExternalLink | null>(null);
@@ -26,7 +32,8 @@
     onchange?.({
       linked: !!link,
       frozen: !!link && (!reachable || link.frozen),
-      status: link?.status,
+      reachable,
+      status: link?.status ?? undefined,
       url: link?.external_url,
     });
   }
@@ -105,11 +112,13 @@
   <div class="d-flex flex-wrap align-items-center gap-2">
     <span class="small fw-semibold">{part === "plan" ? "Plan" : "Log"} TC link</span>
     {#if link}
-      <Badge color={link.frozen ? "warning" : "secondary"}>{link.status}</Badge>
+      {#if link.status}
+        <Badge color={link.frozen ? "warning" : "secondary"}>{link.status}</Badge>
+      {/if}
       {#if !reachable}<Badge color="danger">state unavailable</Badge>{/if}
       <a class="small" href={link.external_url} target="_blank" rel="noreferrer">Open in TC</a>
       <Button size="sm" color="outline-secondary" onclick={refresh} disabled={loading}>Refresh</Button>
-      <Button size="sm" color="outline-danger" onclick={unlink} disabled={loading || link.frozen}>Unlink</Button>
+      <Button size="sm" color="outline-danger" onclick={unlink} disabled={loading || !reachable || link.frozen}>Unlink</Button>
     {:else}
       <span class="small text-muted">Not linked</span>
       <Button size="sm" color="outline-primary" onclick={() => (pickerOpen = !pickerOpen)}>Link TC node</Button>

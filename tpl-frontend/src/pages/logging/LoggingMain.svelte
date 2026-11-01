@@ -21,6 +21,7 @@
   let id: string = $derived(route.params.id ?? "");
 
   let logFrozen = $state(false);
+  let logReachable = $state(true);
   let selectedStepId = $state<string | null>(null);
   let selectedEntryId = $state<string | null>(null);
   let contextMenu = $state<{ x: number; y: number; stepId: string; parentGroupId: string | null } | null>(null);
@@ -775,9 +776,15 @@
     {/if}
   </div>
 
-  <ExternalLinkPanel documentId={id} part="log" onchange={(s) => (logFrozen = s.frozen)} />
+  <ExternalLinkPanel documentId={id} part="log" onchange={(s) => { logFrozen = s.frozen; logReachable = s.reachable; }} />
   {#if logFrozen}
-    <div class="alert alert-warning m-2 py-2">Execution logging is read-only because its TC status is frozen.</div>
+    <div class="alert alert-warning m-2 py-2">
+      {#if logReachable}
+        Execution logging is read-only because its TC status is frozen.
+      {:else}
+        Execution logging is read-only because its TC state is unavailable.
+      {/if}
+    </div>
   {/if}
 
   {#if pausedEntry}
